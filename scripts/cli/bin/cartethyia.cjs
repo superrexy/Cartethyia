@@ -108,7 +108,7 @@ if (trayMode) {
   console.log("Loading Cartethyia…");
   let settled = false;
   const deadline = Date.now() + 60_000;
-  const finish = (error, url) => {
+  const finish = (error, readyMessage) => {
     if (settled) return;
     settled = true;
     try {
@@ -131,7 +131,7 @@ if (trayMode) {
       if (child.exitCode === null) child.kill();
       return;
     }
-    console.log(`Cartethyia is ready at ${url}`);
+    console.log(readyMessage);
     // The gateway child is already detached and unref'd; this Node process is
     // the only thing still holding the launching terminal open. Exit once the
     // URL has been shown so the shell prompt comes back.
@@ -143,7 +143,13 @@ if (trayMode) {
       try {
         const signal = JSON.parse(fs.readFileSync(startupSignalPath, "utf8"));
         if (signal.status === "ready" && typeof signal.url === "string") {
-          finish(null, signal.url);
+          finish(null, `Cartethyia is ready at ${signal.url}`);
+          return;
+        }
+        // A tray was already running and this command only asked it for its
+        // icon: success with no URL, not a start that never finished.
+        if (signal.status === "already-running") {
+          finish(null, "Cartethyia is already running; tray icon shown.");
           return;
         }
         if (signal.status === "failed" && typeof signal.message === "string") {

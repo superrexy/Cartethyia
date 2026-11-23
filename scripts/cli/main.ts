@@ -140,15 +140,20 @@ async function main(): Promise<void> {
       const { inheritedControllerHandoff } = await import("./controller");
       if (inheritedControllerHandoff() === undefined) {
         const { showIconOnExistingTray } = await import("./tray/commands");
+        const { reportTrayStartup } = await import("./startup-signal");
         try {
           if (await showIconOnExistingTray()) {
+            // The launcher spawned this process detached and is waiting for a
+            // signal; without one it reports a failed start for a command that
+            // succeeded, because this process never had a URL to hand back.
+            reportTrayStartup({ status: "already-running" });
             console.log("Cartethyia tray is already running; icon shown.");
             return;
           }
         } catch (error) {
-          console.error(
-            `Cartethyia tray is already running, but the icon could not be shown: ${error instanceof Error ? error.message : "unknown error"}`,
-          );
+          const message = error instanceof Error ? error.message : "unknown error";
+          reportTrayStartup({ status: "failed", message });
+          console.error(`Cartethyia tray is already running, but the icon could not be shown: ${message}`);
           process.exitCode = 1;
           return;
         }
