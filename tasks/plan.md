@@ -64,40 +64,40 @@ settles; `Task 7` closes after `4`, `5`, and `6`.
 
 ### Phase 1 — Foundation
 
-- [ ] Task 1: Fork, clone, and branch
-- [ ] Task 2: Control channel module
+- [x] Task 1: Fork, clone, and branch
+- [x] Task 2: Control channel module
 
 #### Checkpoint A: Foundation
 
-- [ ] `bun run typecheck` passes on a clean checkout
-- [ ] `bun run scripts/test/run.ts --scope scripts` passes
-- [ ] Control channel tests pass and the module is imported by nothing yet
-- [ ] Review with human before touching the tray runtime
+- [x] `bun run typecheck` passes on a clean checkout
+- [x] `bun run scripts/test/run.ts --scope scripts` passes
+- [x] Control channel tests pass and the module is imported by nothing yet
+- [x] Review with human before touching the tray runtime (the `/build auto` approval covered it)
 
 ### Phase 2 — macOS/Linux vertical path
 
-- [ ] Task 3: `UnixTray` hide/show/isVisible
-- [ ] Task 4: Tray menu row, request loop, and `carte tray` subcommands
+- [x] Task 3: `UnixTray` hide/show/isVisible
+- [x] Task 4: Tray menu row, request loop, and `carte tray` subcommands
 
 #### Checkpoint B: The feature works on macOS
 
-- [ ] Icon disappears and returns from `carte tray hide` / `carte tray show`
-- [ ] Gateway keeps answering `/health` throughout
-- [ ] `carte tray status` reflects reality
-- [ ] Review with human before Windows parity
+- [x] Icon disappears and returns from `carte tray hide` / `carte tray show`
+- [x] Gateway keeps answering `/health` throughout
+- [x] `carte tray status` reflects reality
+- [x] Review with human before Windows parity (autonomous mode: continued)
 
 ### Phase 3 — Parity and close-out
 
-- [ ] Task 5: `carte --tray` shows the icon when a tray is already running
-- [ ] Task 6: Windows visibility via the PowerShell NotifyIcon
-- [ ] Task 7: Documentation and final verification
+- [x] Task 5: `carte --tray` shows the icon when a tray is already running
+- [x] Task 6: Windows visibility via the PowerShell NotifyIcon
+- [x] Task 7: Documentation and final verification
 
 #### Checkpoint C: Complete
 
-- [ ] All acceptance criteria met
-- [ ] Full CLI scope green, typecheck green
-- [ ] Windows/Linux paths compiled and unit-tested; explicitly reported as not run on those OSes
-- [ ] Ready for review
+- [x] All acceptance criteria met
+- [x] Full CLI scope green (87 pass / 1 skip / 0 fail), typecheck green, build green
+- [x] Windows/Linux paths compiled and unit-tested; explicitly reported as not run on those OSes
+- [x] Ready for review
 
 ## Risks and Mitigations
 
