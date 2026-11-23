@@ -79,20 +79,23 @@ documentation/       → architecture/configuration/feature docs
 Files this change adds or edits:
 
 ```
-scripts/cli/tray/control.ts          NEW  request + state channel (files in the config dir)
+scripts/cli/tray/control.ts          MOVED  → src/console/tray/control.ts (V1.1: shared with the console)
 scripts/cli/tray/index.ts            EDIT Tray interface gains hide()/show()/isVisible()
 scripts/cli/tray/windows.ps1         EDIT "hide"/"show" protocol actions, "hidden"/"shown" acks
 scripts/cli/tray.ts                  EDIT menu row, request poll loop, state writes, gateway untouched
 scripts/cli/main.ts                  EDIT `tray hide|show|toggle|status` dispatch + HELP text
 scripts/cli/controller.ts            EDIT read-only controller summary for the auto-show path
 test/cli/tray-visibility.test.ts     NEW  unit tests for control channel and visibility state machine
+test/console/tray-routes.test.ts     NEW  V1.1 route contract (gates, nonce confirmation, errors)
+dashboard/src/features/settings/TrayPanel.tsx  NEW  V1.1 Settings → Tray panel
+dashboard/test/features/tray-panel.test.tsx    NEW  V1.1 panel states and toasts
 README.md                            EDIT CLI table: hide/show usage
 SPEC.md                              this spec
 ```
 
 ## Design
 
-### Control channel (`scripts/cli/tray/control.ts`)
+### Control channel (`src/console/tray/control.ts`)
 
 Two files in `resolveUserConfigDir()` (mode `0600`), next to `controller.json`:
 
@@ -176,6 +179,24 @@ carte tray status          print "running (PID n), icon hidden|visible" or "no t
 With this change, a live **tray** owner is treated as "show the icon": write a `show` request, print
 `Cartethyia tray is already running; icon shown.`, exit 0. A live **menu** owner keeps the existing
 error, and the menu→tray handoff path (`inheritedControllerHandoff()`) is untouched.
+
+### Console Settings panel (V1.1 delta — `SPEC-console-tray-control.md`)
+
+The same control from the dashboard, through the same file channel:
+
+- `src/console/tray/control.ts` owns the channel (moved from `scripts/cli/tray/control.ts`) and the
+  nonce-confirmation wait (`awaitTrayChange`), so the CLI and the console cannot disagree about what
+  "confirmed" means.
+- `GET /console/api/tray/status` → `{ running, hidden, pid }`; `POST /console/api/tray/visibility`
+  with `{ action: "hide" | "show" }`. Both are `platform:admin`; the POST also requires a loopback
+  peer (`tray_control_local_only` otherwise) because a remote browser has no tray to talk to.
+  Errors: `tray_not_running` 409, `tray_control_unavailable` 409 (gateway started without a config
+  dir), `tray_visibility_timeout` 504. Asking for the state the tray is already in is answered from
+  the record without writing a request.
+- Dashboard: Settings → **Tray** (`dashboard/src/features/settings/TrayPanel.tsx`), one card, no new
+  route.
+- `pidAlive` and `isLoopbackPeer` now live in `src/shared/` so `src/` imports neither `scripts/` nor
+  the transport layer.
 
 ## Code Style
 

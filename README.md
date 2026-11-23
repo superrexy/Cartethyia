@@ -67,7 +67,9 @@ npm uninstall -g cartethyia # uninstall
 
 Hiding the tray icon is not stopping Cartethyia: the gateway keeps serving, and
 `carte tray show` — or running `carte --tray` again — brings the icon back. The
-tray menu offers the same thing as **Hide icon**.
+tray menu offers the same thing as **Hide icon**, and the console's
+**Settings → Tray** section reports the icon's state and hides or restores it —
+from the machine running the gateway only.
 
 Full guide (modes, Docker, VPS, systemd, one-shot script):
 [installation](documentation/installation.md).
