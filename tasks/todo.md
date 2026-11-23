@@ -1,301 +1,353 @@
-# Task List: Tray Icon Hide/Show
+# Task List: Console Tray Icon Control
 
-Source spec: `SPEC.md` · Plan: `tasks/plan.md` · Branch: `feat/tray-hide-icon` (fork `superrexy/Cartethyia`)
+Source spec: `SPEC-console-tray-control.md` · Plan: `tasks/plan.md` · Branch: `feat/tray-hide-icon`
 
-Verification commands (always through the repository runner, never bare `bun test`):
+Verification commands (through the repository runner, never bare `bun test` at the root):
 
 ```
-Typecheck:  bun run typecheck
-CLI tests:  bun run scripts/test/run.ts --scope scripts
-One file:   bun run scripts/test/run.ts --scope scripts test/cli/<file>.test.ts
-Build:      bun run build
+Typecheck:            bun run typecheck
+Dashboard typecheck:  bun run dashboard:typecheck
+CLI tests:            bun run scripts/test/run.ts --scope scripts
+Backend tests:        bun run scripts/test/run.ts --scope backend
+Dashboard tests:      bun run scripts/test/run.ts --scope dashboard
 ```
+
+`--scope backend` needs `CARTETHYIA_TEST_DATABASE_URL`; `bun run test-db:up` starts a disposable
+Postgres on `127.0.0.1:55432`. The dashboard scope needs no database.
 
 ---
 
 ## Phase 1 — Foundation
 
-### Task 1: Fork, clone, and branch
+### Task 1: Extract `pidAlive` to `src/shared/process.ts`
 
-**Description:** Create the working copy this feature lives in. Fork `risunCodex/Cartethyia` to
-`superrexy/Cartethyia`, clone it to the project directory, wire `origin` to the fork and `upstream` to
-the original, create the feature branch from the fork's `main` (3.9.0, `815d49c1`), install
-dependencies, and record the baseline so later failures are attributable.
-
-Two full clones already failed on this network (`fetch-pack: unexpected disconnect while reading
-sideband packet`, `early EOF`) because the repository is ~63 MB. The clone that succeeded uses a
-partial clone (`--filter=blob:none`), which keeps full history and fetches blobs on demand. Keep that
-shape: do not re-clone with a plain `git clone`.
+**Description:** `pidAlive` decided whether a stale lock, controller record, or tray state file is
+believed, and two copies existed: `scripts/cli/instance.ts` (with the Windows `tasklist` path) and a
+weaker private copy in `src/console/remote-support/service.ts`. The console route needs it, and
+`src/` may not import `scripts/`, so it moves to `src/shared/` and every caller imports it from
+there.
 
 **Acceptance criteria:**
-- [x] `git -C <clone> remote -v` shows `origin` = `superrexy/Cartethyia` and `upstream` = `risunCodex/Cartethyia`
-- [x] Current branch is `feat/tray-hide-icon`, based on `main` at `815d49c1`, working tree clean
-- [x] `package.json` version is `3.9.0`
-- [x] The four tray sources (`tray.ts`, `tray/index.ts`, `tray/windows.ps1`, `main.ts`) are byte-identical to the 3.9.0 npm package, so the analysis in `SPEC.md` describes this checkout
-- [x] `bun install` completed and `bun run typecheck` passes before any edit
-- [x] Baseline `--scope scripts` result recorded: **50 pass, 1 skip, 0 fail** (51 tests, 12 files, 699 ms)
+- [x] One implementation, at `src/shared/process.ts`
+- [x] `scripts/cli/instance.ts`, `start.ts`, `controller.ts`, `gateway.ts`, `scripts/install/host.ts`, and `src/console/remote-support/service.ts` import it; no local copy remains
+- [x] No signature or behavior change; the Windows `tasklist` branch is preserved verbatim
+- [x] `pidAlive` is no longer re-exported from `instance.ts` (callers updated instead of aliased)
 
 **Verification:**
-- [x] `git remote -v`, `git status`, `git log --oneline -1` inspected
-- [x] `bun run typecheck` passes (exit 0, `tsc --noEmit`)
-- [x] `bun run scripts/test/run.ts --scope scripts` → 50 pass / 1 skip / 0 fail
-- [x] Manual check: none needed
+- [x] `bun run typecheck` passes
+- [x] `bun test test/console/remote-support-serve-state.test.ts test/console/remote-support-install-hint.test.ts` — 7 pass
 
 **Dependencies:** None
 
-**Files likely touched:** none (repository setup only; `SPEC.md` and `tasks/` are added by this plan)
+**Files likely touched:**
+- `src/shared/process.ts` (new)
+- `scripts/cli/instance.ts`, `scripts/cli/start.ts`, `scripts/cli/controller.ts`, `scripts/cli/gateway.ts`
+- `scripts/install/host.ts`
+- `src/console/remote-support/service.ts`
 
-**Estimated scope:** Small — no source files
+**Estimated scope:** Small mechanically; 7 files, all one-line import swaps that cannot be split
+without leaving the tree uncompilable.
 
 ---
 
-### Task 2: Control channel module
+### Task 2: Extract `isLoopbackPeer` to `src/shared/peer.ts`
 
-**Description:** Add `scripts/cli/tray/control.ts`, the two-file channel that lets a CLI command ask
-a running tray to change visibility and read back what it did. It owns the request file
-(`tray-request.json`) and the state file (`tray-state.json`) under `resolveUserConfigDir()`, the
-atomic write, the consume-once read, and the liveness rule that a state file whose pid is dead means
-"no tray running". Nothing imports it yet, so this task cannot break the running product.
+**Description:** The console's tray route needs the same loopback test the drain endpoint uses. The
+console composition root does not import `src/transport/`, so the predicate moves to `src/shared/`
+and `drain-endpoint.ts` imports it from there.
 
 **Acceptance criteria:**
-- [x] `writeTrayRequest({ request: "show" | "hide" | "toggle" })` writes `tray-request.json` atomically with mode `0600` and a fresh `nonce`
-- [x] `consumeTrayRequest()` returns the request once and unlinks the file; a second call returns `null`
-- [x] A corrupt, empty, or unknown-shaped request file is deleted and reported as `null` — never throws
-- [x] `writeTrayState({ pid, hidden })` / `readTrayState()` round-trip; a state file whose pid is not alive reads as `null` and is removed
-- [x] Missing config directory produces a clear error, not a crash inside `JSON.parse`
-- [x] No new dependency; imports are static
+- [x] One implementation, at `src/shared/peer.ts`, accepting `::1`, `127.0.0.0/8`, and the `::ffff:` mapped spelling
+- [x] `src/transport/drain-endpoint.ts` imports it; no duplicate definition
+- [x] The deferred-weaker-predicate note in `src/network/util/ip.ts` now points at the new location
 
 **Verification:**
-- [x] `bun run scripts/test/run.ts --scope scripts` passes — 60 pass / 1 skip / 0 fail (10 new tests)
-- [x] `bun run typecheck` passes (exit 0)
-- [x] Manual check: the mode assertion reads `0o600` from the written file; shape asserted field by field
+- [x] `bun run typecheck` passes
+- [x] `bun test test/transport/drain-reserve-routing.test.ts` — 15 pass
 
-**Note:** the runner always appends the whole `test/cli` tree, so a single file cannot be narrowed
-through it. `--scope scripts` is the focused command; it runs in under a second.
-
-**Dependencies:** Task 1
+**Dependencies:** None (parallel with Task 1)
 
 **Files likely touched:**
-- `scripts/cli/tray/control.ts` (new)
-- `test/cli/tray-visibility.test.ts` (new)
+- `src/shared/peer.ts` (new)
+- `src/transport/drain-endpoint.ts`
+- `src/network/util/ip.ts` (comment only)
 
-**Estimated scope:** Small — 2 files
+**Estimated scope:** Small
 
 ---
 
 ## Checkpoint A: Foundation
 
 - [x] `bun run typecheck` passes
-- [x] `bun run scripts/test/run.ts --scope scripts` passes
-- [x] `control.ts` is covered by tests and imported by nothing else yet
-- [x] Review with human before changing tray runtime behavior (covered by the `/build auto` approval)
+- [x] Drain/pool and remote-support suites still pass
 
 ---
 
-## Phase 2 — macOS/Linux vertical path
+## Phase 2 — The channel has one owner
 
-### Task 3: `UnixTray` hide/show/isVisible
+### Task 3: Move the control channel and unify the confirmation wait
 
-**Description:** Give the tray abstraction real visibility on macOS and Linux. `hide()` ends the
-`systray2` helper without letting its exit look like a crash, `show()` starts a fresh helper and
-re-registers the same rows and click handling, and `isVisible()` reports local state. A small
-injectable factory seam lets the tests drive the helper without spawning a real one.
+**Description:** `scripts/cli/tray/control.ts` becomes `src/console/tray/control.ts` with unchanged
+behavior, so the console route and the CLI read and write the same two files through one module. The
+wait-for-nonce loop moves with it as `awaitTrayChange`, and the CLI's `requestTrayVisibility`
+delegates instead of keeping its own copy — otherwise the CLI and the console could disagree about
+what "confirmed" means. New error types let the route map failures onto console codes instead of
+turning them into 500s.
 
 **Acceptance criteria:**
-- [x] `Tray` exposes `hide(): Promise<void>`, `show(): Promise<void>`, `isVisible(): boolean`; `close()` still removes the icon and ends the helper
-- [x] `hide()` calls the helper with `kill(false)` and does not call `process.exit`
-- [x] The helper's `exit` event fired during `hide()` does not reach `onExit`; an exit outside `hide()` still does
-- [x] `show()` after `hide()` creates a new helper and a click on a row still resolves to the same `id` (including hide → show → hide → show)
-- [x] `hide()` on an already-hidden tray and `show()` on an already-visible tray are no-ops
-- [x] `isVisible()` is `false` after `hide()` and `true` after `show()`
+- [x] The request/state file shapes, mode `0600`, atomic temp+rename write, and the "corrupt file is discarded" rule are unchanged
+- [x] `awaitTrayChange` is the only wait loop; `scripts/cli/tray/commands.ts` calls it
+- [x] `TrayControlUnavailableError` and `TrayChangeTimeoutError` distinguish the two failures the console route reports
+- [x] The old path is gone; no compatibility alias left behind
+- [x] The direct `CARTETHYIA_CONFIG_DIR` read is declared in the env-read allowlist with its reason
 
 **Verification:**
-- [x] `bun run scripts/test/run.ts --scope scripts` passes — 67 pass / 0 fail (7 new tests)
-- [x] `bun run typecheck` passes (exit 0)
-- [x] Manual check: none yet (no caller)
+- [x] `bun run scripts/test/run.ts --scope scripts` — 92 pass / 1 skip / 0 fail
+- [x] `test/cli/tray-visibility.test.ts` passes with its import path updated and no assertion changed
+- [x] `bun test test/config/no-direct-env-reads.test.ts` — 2 pass
 
-**Deviation:** `WindowsTray` implements `hide()`/`show()` in this task too, together with the
-`windows.ps1` actions. The interface cannot gain three members without every implementation
-compiling, and shipping a Windows path that silently does nothing would be worse than shipping the
-real one early. Task 6 therefore owns the Windows protocol tests rather than the implementation.
-
-**Dependencies:** Task 1
+**Dependencies:** Tasks 1, 2
 
 **Files likely touched:**
-- `scripts/cli/tray/index.ts`
-- `test/cli/tray-visibility.test.ts`
+- `src/console/tray/control.ts` (new; `scripts/cli/tray/control.ts` deleted)
+- `scripts/cli/tray.ts`, `scripts/cli/tray/commands.ts`
+- `test/cli/tray-visibility.test.ts`, `test/config/no-direct-env-reads.test.ts`
 
-**Estimated scope:** Small — 2 files
+**Estimated scope:** Medium
 
 ---
 
-### Task 4: Tray menu row, request loop, and `carte tray` subcommands
+## Checkpoint B: The CLI is unchanged
 
-**Description:** Wire the feature into the running product: a `Hide icon` row in the tray menu, a
-1 s request loop beside the health poll that applies `hide`/`show`/`toggle` and rewrites the state
-file, state cleanup on `Exit`, and the `carte tray hide|show|toggle|status` subcommands that write a
-request and wait for the state file to confirm it.
+- [x] `--scope scripts` green
+- [x] `carte tray hide|show|toggle|status` output and exit codes match V1
+
+---
+
+## Phase 3 — Slice 1: the console can see the icon's state
+
+### Task 4: `GET /tray/status`, contracts, mount, peer resolver
+
+**Description:** The first endpoint of the domain: report whether a tray is running and whether its
+icon is on screen. Wire types live in an Elysia-free module so the dashboard can project them. The
+domain is mounted like every other console domain, and the router passes the peer resolver the
+composition root already computes.
 
 **Acceptance criteria:**
-- [x] Tray menu shows `Hide icon` between `Backup` and `Exit`; clicking it removes the icon within 2 s
-- [x] While hidden, the tray process stays alive and `GET /health` still answers 200
-- [x] `carte tray show` restores the icon within 2 s; `carte tray toggle` flips it; `carte tray status` prints `icon hidden` / `icon visible` with the tray pid
-- [x] `carte tray hide` with no tray running prints a clear message and exits non-zero without leaving a request file
-- [x] `hide`/`show`/`toggle`/`status` never drain, stop, or restart the gateway, and never write `controller.json`
-- [x] `Exit` stops the gateway as before and removes `tray-state.json` and any pending `tray-request.json`
-- [x] No dynamic import is added in `scripts/cli` without the documented comment shape
+- [x] `GET /console/api/tray/status` → `{ running, hidden, pid }`
+- [x] No state file → `{ running: false, hidden: false, pid: null }`
+- [x] A record whose pid is dead reads as "no tray running" and is deleted
+- [x] A corrupt state file reads as "no tray running"
+- [x] Unauthenticated → 401; a session without `platform:admin` → 403 `insufficient_scope`
+- [x] `ConsoleDomainContext` gains an optional `resolvePeerAddress`; reduced compositions omit it
+- [x] Unset `CARTETHYIA_CONFIG_DIR` → 409 `tray_control_unavailable`, never 500
 
 **Verification:**
-- [x] `bun run scripts/test/run.ts --scope scripts` passes — 76 pass / 0 fail
-- [x] `bun run typecheck` passes (exit 0)
-- [x] Manual check on macOS, isolated instance (own config dir, data dir, PORT=12990) so the
-      operator's tray was never touched: hide → icon gone, helper count 1 (only the operator's),
-      `/health` 200, `status` reports hidden; show → helper count 2, `status` visible; toggle both
-      ways; `/health` 200 throughout
-- [x] Manual check: `carte tray hide` with no tray running → `No Cartethyia tray is running; start one
-      with carte --tray`, exit 1, config dir left empty; `tray status` with no tray → exit 0
-- [x] Manual check: killing the tray removed `tray-state.json` and `controller.json` and left the
-      gateway stopped, as `Exit` should
+- [x] `bun test test/console/tray-routes.test.ts` — status cases pass
+- [x] Real gateway probe: `/console/api/tray/status` answers 401 unauthenticated while an unknown console path answers 404, proving the mount; an admin session gets 200
 
-**Not automated:** the menu-row click itself needs UI scripting (Accessibility permission). The row
-and its handler are verified by inspection (`id: "hide"` row at the documented position, `handleSelect`
-branch), and the handler's body is the same `setVisibility` path the CLI verification exercised.
-
-**Dependencies:** Tasks 2, 3
+**Dependencies:** Task 3
 
 **Files likely touched:**
-- `scripts/cli/tray.ts`
-- `scripts/cli/main.ts`
-- `test/cli/tray-visibility.test.ts`
+- `src/console/tray/contracts.ts`, `src/console/tray/routes.ts` (both new)
+- `src/console/domain-registration.ts`, `src/console/console-router.ts`
 
-**Estimated scope:** Medium — 3 files
-
----
-
-## Checkpoint B: The feature works on macOS
-
-- [x] Icon hides and returns from the menu row and from `carte tray`
-- [x] Gateway uninterrupted throughout (`/health` 200, no drain in the log)
-- [x] `Exit` still stops everything and leaves no state files
-- [x] Review with human before Windows parity (autonomous mode: continued)
+**Estimated scope:** Medium
 
 ---
 
-## Phase 3 — Parity and close-out
+### Task 5: Dashboard status read
 
-### Task 5: `carte --tray` shows the icon when a tray is already running
-
-**Description:** Turn the current already-running error into the discoverable way back. When the
-live controller owner is a tray, `carte --tray` writes a `show` request, reports it, and exits 0. A
-live menu owner keeps the existing error, and the menu→tray handoff path is untouched.
+**Description:** The panel's read path: types re-exported from the backend contract, one query key,
+one hook on the status cadence, and the card body with its three states. Polling rather than a push
+channel because the tray writes a file that only a read observes, and the tray's own menu can change
+its state without the dashboard doing anything.
 
 **Acceptance criteria:**
-- [x] `carte --tray` with a hidden tray running prints an already-running line, exits 0, and the icon returns
-- [x] Exactly one tray process exists afterwards (`pgrep -f "main.ts tray"` returns one pid)
-- [x] `carte --tray` while a menu owns the controller still fails with the existing message
-- [x] The menu's `Hide to Tray` handoff still works end to end
+- [x] Types and the action tuple are re-exported from `src/console/tray/contracts.ts`; no second copy
+- [x] `queryKeys.tray.status` exists; no inline key in the feature
+- [x] Running + visible → Hide enabled, Show disabled; running + hidden → the reverse
+- [x] No tray → both disabled, and the panel names `carte tray` as how to start one
+- [x] A failed read shows the server's sentence and a retry
 
 **Verification:**
-- [x] `bun run scripts/test/run.ts --scope scripts` passes — 81 pass / 0 fail (5 new tests)
-- [x] `bun run typecheck` passes (exit 0)
-- [x] Manual check on macOS, isolated instance: `tray hide` → icon hidden → `carte --tray` printed
-      `Cartethyia tray is already running; icon shown.`, exit 0, one tray process, helper count back
-      to 2, `status` reports visible, `/health` 200
-- [x] Manual check: the menu-owned and no-controller cases return `false` and fall through to the
-      normal start path (unit-tested); the `Hide to Tray` handoff is untouched — `inheritedControllerHandoff()`
-      is checked first and the handoff tests in `test/cli/controller.test.ts` still pass
-
-**Note:** the menu-owns-the-controller error was not re-demonstrated by hand, because doing so means
-starting a menu against the isolated instance and leaving it attached. It is covered by the
-`showIconOnExistingTray` unit test plus the unchanged `acquireController` path.
+- [x] `bun run dashboard:typecheck` passes
+- [x] `bun test dashboard/test/features/tray-panel.test.tsx` — state cases pass
 
 **Dependencies:** Task 4
 
 **Files likely touched:**
-- `scripts/cli/main.ts`
-- `scripts/cli/controller.ts`
-- `test/cli/tray-visibility.test.ts`
+- `dashboard/src/data/contracts.ts`, `dashboard/src/data/query-keys.ts`
+- `dashboard/src/hooks/tray.ts` (new)
+- `dashboard/src/features/settings/TrayPanel.tsx` (new)
 
-**Estimated scope:** Small — 3 files
+**Estimated scope:** Medium
 
 ---
 
-### Task 6: Windows visibility via the PowerShell NotifyIcon
+## Checkpoint C: Status is visible
 
-**Description:** Add `hide`/`show` actions to the Windows helper protocol and implement
-`WindowsTray.hide()`/`show()` on top of them with an ack. The helper keeps running and only toggles
-`NotifyIcon.Visible`, so the message loop and the menu survive.
+- [x] Settings → Tray renders the correct state for each case
+- [x] Route cleanup of dead-pid records verified
+
+---
+
+## Phase 4 — Slice 2: hide and restore the icon
+
+### Task 6: `POST /tray/visibility` with nonce confirmation
+
+**Description:** The mutating half. It writes a request and answers only once the tray has confirmed
+it by quoting the request's nonce, so a resolved response means the icon really moved. It refuses
+when no tray runs, and it answers an already-satisfied request from the record instead of waking the
+tray to do nothing.
 
 **Acceptance criteria:**
-- [x] `windows.ps1` handles `{"action":"hide"}` and `{"action":"show"}`, toggles `$script:notifyIcon.Visible`, and writes `{"type":"hidden"}` / `{"type":"shown"}`
-- [x] `WindowsTray.hide()`/`show()` send the action and resolve on the ack; a missing ack rejects after the timeout instead of reporting success
-- [x] `isVisible()` tracks the last acknowledged state
-- [x] `kill` still disposes the icon and ends the message loop
-- [x] The protocol comment block at the top of `windows.ps1` documents the new actions and events
+- [x] `{ action: "hide" | "show" }` → the confirmed `{ running, hidden, pid }`
+- [x] The response waits for a state record whose nonce matches this request; a stale record with no nonce does not count
+- [x] Timeout → 504 `tray_visibility_timeout`, and the pending request is removed so the tray cannot act on it later
+- [x] No tray → 409 `tray_not_running` and nothing written
+- [x] Asking for the current state → 200 from the record, no request file
+- [x] An unknown action → 422 from the body schema, before the channel is touched
 
 **Verification:**
-- [x] `bun run scripts/test/run.ts --scope scripts` passes — 87 pass / 0 fail (6 new tests)
-- [x] `bun run typecheck` passes (exit 0)
-- [ ] Manual check: **not possible on this machine** — stated explicitly in the final report
+- [x] `bun test test/console/tray-routes.test.ts` — 15 pass
+- [x] Real gateway probe against an isolated instance: `hide` → `{hidden:true}` after a simulated tray ack, `show` → `{hidden:false}`, repeat `show` → no request file left
 
-**Bug found and fixed:** `WindowsTray.close()` set `#closed = true` before calling `#send()`, and
-`#send()` returns early when `#closed` is set — so the helper never received `kill` and was only
-removed by the 1.5 s timeout's `process.kill()`. The `kill` is now sent before the flag is set, which
-lets the helper dispose its icon and exit on its own. Found by the `windows kill still disposes the
-icon` test, which asserted on the last command sent rather than on the process dying.
-
-**Dependencies:** Tasks 3, 4
+**Dependencies:** Task 4
 
 **Files likely touched:**
-- `scripts/cli/tray/windows.ps1`
-- `scripts/cli/tray/index.ts`
-- `test/cli/tray-visibility.test.ts`
+- `src/console/tray/routes.ts`
+- `test/console/tray-routes.test.ts` (new)
 
-**Estimated scope:** Small — 3 files
+**Estimated scope:** Medium
 
 ---
 
-### Task 7: Documentation and final verification
+### Task 7: Panel actions, disabled states, and toasts
 
-**Description:** Document the new commands and the menu row where operators look for CLI behavior,
-then run the full gate and write the report: what changed, what ran, what passed, what could not be
-verified on this machine.
+**Description:** The buttons in the card. Each reports both outcomes, per the dashboard's contract:
+a confirmed change toasts the outcome, a failure toasts the server's own sentence rather than a
+generic one. Only the live action is enabled, so the disabled one reads as "real, currently
+pointless" instead of vanishing.
 
 **Acceptance criteria:**
-- [x] README CLI section lists `carte tray hide|show|toggle|status` and the `Hide icon` row, and states that hiding keeps the gateway running
-- [x] The existing `carte --tray` description notes the already-running behavior
-- [x] All repository artifacts added by this work are in English
-- [x] `SPEC.md` stays the source of truth for the shipped behavior (update only if an implemented detail diverges, and say so in the report)
+- [x] Clicking the live button posts exactly that action; the disabled one cannot be clicked
+- [x] Success → `toast.success("Icon hidden" / "Icon shown")`
+- [x] Failure → `toast.error(getErrorMessage(error, ...))`
+- [x] The status query is invalidated on success rather than patched locally
+- [x] The Tray section is registered in `SECTIONS`, `PANEL_BODY`, and `SectionIcon`
 
 **Verification:**
-- [x] `bun run typecheck` passes (exit 0)
-- [x] `bun run scripts/test/run.ts --scope scripts` passes — 87 pass / 1 skip / 0 fail (88 tests, 13 files)
-- [x] `bun run build` succeeds: dashboard build, AOT manifest, and `dist/cartethyia` compiled
-- [x] Final report lists every check with its outcome and every unverified platform
+- [x] `bun test dashboard/test/features/tray-panel.test.tsx` — action and toast cases pass
+- [x] `bun run scripts/test/run.ts --scope dashboard` — 716 pass / 0 fail, including the updated `settings-sections` counts
 
-**Spec updates folded in:** `Status:` moved to `implemented`; the state record's `nonce` field and the
-`UnixTray.hide()` failure rule were added, because the implementation found two things the spec's
-first draft got wrong — timestamps cannot attribute an ack, and a swallowed `kill()` error could
-report a hidden icon that was still on screen.
-
-**Observed, not changed:** `dist/cartethyia` boots the gateway even for `--help`. That binary is the
-gateway, not the CLI; the CLI entry point is `scripts/cli/main.ts` (and the packaged
-`scripts/cli/bin/cartethyia.cjs`). Pre-existing and unrelated to this work.
-
-**Dependencies:** Tasks 4, 5, 6
+**Dependencies:** Task 6
 
 **Files likely touched:**
-- `README.md`
-- `documentation/reference/configuration.md` (only if it documents the CLI/tray behavior)
-- `SPEC.md` (only if a shipped detail diverged)
+- `dashboard/src/features/settings/TrayPanel.tsx`, `dashboard/src/features/settings/SettingsPage.tsx`
+- `dashboard/test/features/tray-panel.test.tsx` (new), `dashboard/test/features/settings-sections.test.tsx`
 
-**Estimated scope:** Small — 1-3 files
+**Estimated scope:** Medium
 
 ---
 
-## Checkpoint C: Complete
+## Checkpoint D: Hide and show work
 
-- [x] Every acceptance criterion above is met or explicitly reported as unverified
-- [x] `bun run typecheck` and the CLI test scope are green
-- [x] macOS end-to-end demonstrated; Windows/Linux implemented and unit-tested only
-- [x] Nothing pushed; branch local, working tree clean
+- [x] Route and panel suites green
+- [x] Real-gateway probe confirms both directions and the idempotent repeat
+
+---
+
+## Phase 5 — Slice 3: a remote browser is refused with a reason
+
+### Task 8: Loopback gate and local-only banner
+
+**Description:** The refusal path. A browser that is not on the gateway's machine has no tray to
+talk to, so the mutation is refused with its own code and the panel explains why instead of leaving a
+failed click with no reason.
+
+**Acceptance criteria:**
+- [x] Non-loopback peer → 403 `tray_control_local_only`, and no request file is written
+- [x] An unknown peer (reduced composition) fails closed
+- [x] The gate runs after the admin guard, so a non-admin never learns the peer policy
+- [x] The panel renders an inline banner naming the restriction
+- [x] The status read stays reachable from anywhere, so the panel still explains itself remotely
+
+**Verification:**
+- [x] `bun test test/console/tray-routes.test.ts` — non-loopback and unknown-peer cases pass
+- [x] `bun test dashboard/test/features/tray-panel.test.tsx` — banner case passes
+
+**Dependencies:** Task 7
+
+**Files likely touched:**
+- `src/console/tray/routes.ts`
+- `dashboard/src/features/settings/TrayPanel.tsx`
+- `test/console/tray-routes.test.ts`
+
+**Estimated scope:** Small
+
+---
+
+## Checkpoint E: Refusal path
+
+- [x] Refusal verified without writing a request
+- [x] Banner verified on screen
+
+---
+
+## Phase 6 — Close-out
+
+### Task 9a: Documentation
+
+**Description:** Fold the delivered behavior into the pages that describe it: the spec gains the
+console surface and the files it added, the delta spec flips to `implemented`, and the README's tray
+paragraph names the console section.
+
+**Acceptance criteria:**
+- [x] `SPEC.md` records the console endpoints, their gates, and their error codes
+- [x] `SPEC-console-tray-control.md` reads `Status: implemented`
+- [x] `README.md` mentions Settings → Tray and its loopback restriction
+
+**Verification:**
+- [x] No file references the removed `scripts/cli/tray/control.ts` path
+
+**Dependencies:** Tasks 3–8
+
+**Files likely touched:**
+- `SPEC.md`, `SPEC-console-tray-control.md`, `README.md`
+
+**Estimated scope:** Small
+
+---
+
+### Task 9b: Manual macOS end-to-end
+
+**Description:** The real thing: a running tray, the dashboard open on the same machine, and the four
+observations the spec's success criteria name. **Blocked on operator consent** — running it means
+stopping the tray and gateway currently running on this machine.
+
+**Acceptance criteria:**
+- [ ] Settings → Tray reports the running tray and `icon visible`
+- [ ] `Hide icon` → the icon leaves the menu bar within 2 s, `GET /health` still answers 200, `carte tray status` prints `icon hidden`
+- [ ] `Show icon` → the icon returns within 2 s, `carte tray status` prints `icon visible`
+- [ ] The tray menu still works after both directions (`Open Console` opens the dashboard)
+
+**Verification:**
+- [ ] Manual, on this machine, with the operator's agreement
+- [ ] If declined: reported as unverified in the final report, not claimed as passing
+
+**Dependencies:** Tasks 7, 8
+
+**Files likely touched:** none
+
+**Estimated scope:** Small, but requires stopping a live process
+
+---
+
+## Checkpoint F: Complete
+
+- [x] Every acceptance criterion met, or explicitly reported as unverified
+- [x] `bun run typecheck`, `bun run dashboard:typecheck`, and all three scopes green
+- [x] Windows/Linux tray behavior stated as implemented and unit-tested only
+- [ ] Manual macOS criteria demonstrated or reported as unverified
+- [x] Nothing committed, pushed, or deployed
