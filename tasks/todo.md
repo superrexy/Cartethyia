@@ -58,17 +58,20 @@ atomic write, the consume-once read, and the liveness rule that a state file who
 "no tray running". Nothing imports it yet, so this task cannot break the running product.
 
 **Acceptance criteria:**
-- [ ] `writeTrayRequest({ request: "show" | "hide" | "toggle" })` writes `tray-request.json` atomically with mode `0600` and a fresh `nonce`
-- [ ] `consumeTrayRequest()` returns the request once and unlinks the file; a second call returns `null`
-- [ ] A corrupt, empty, or unknown-shaped request file is deleted and reported as `null` — never throws
-- [ ] `writeTrayState({ pid, hidden })` / `readTrayState()` round-trip; a state file whose pid is not alive reads as `null` and is removed
-- [ ] Missing config directory produces a clear error, not a crash inside `JSON.parse`
-- [ ] No new dependency; imports are static
+- [x] `writeTrayRequest({ request: "show" | "hide" | "toggle" })` writes `tray-request.json` atomically with mode `0600` and a fresh `nonce`
+- [x] `consumeTrayRequest()` returns the request once and unlinks the file; a second call returns `null`
+- [x] A corrupt, empty, or unknown-shaped request file is deleted and reported as `null` — never throws
+- [x] `writeTrayState({ pid, hidden })` / `readTrayState()` round-trip; a state file whose pid is not alive reads as `null` and is removed
+- [x] Missing config directory produces a clear error, not a crash inside `JSON.parse`
+- [x] No new dependency; imports are static
 
 **Verification:**
-- [ ] `bun run scripts/test/run.ts --scope scripts test/cli/tray-visibility.test.ts` passes
-- [ ] `bun run typecheck` passes
-- [ ] Manual check: inspect the written files in a temp config dir (`mode`, JSON shape)
+- [x] `bun run scripts/test/run.ts --scope scripts` passes — 60 pass / 1 skip / 0 fail (10 new tests)
+- [x] `bun run typecheck` passes (exit 0)
+- [x] Manual check: the mode assertion reads `0o600` from the written file; shape asserted field by field
+
+**Note:** the runner always appends the whole `test/cli` tree, so a single file cannot be narrowed
+through it. `--scope scripts` is the focused command; it runs in under a second.
 
 **Dependencies:** Task 1
 
