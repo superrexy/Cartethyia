@@ -16,7 +16,13 @@ const configDir = process.env.CARTETHYIA_CONFIG_DIR || (
       ? path.join(os.homedir(), "Library", "Application Support", "Cartethyia")
       : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "Cartethyia")
 );
-const trayMode = process.argv[2] === "tray";
+// `carte tray` starts a tray and waits for its startup signal.
+// `carte tray hide|show|toggle|status` asks the tray that is already running for
+// something and must run in the foreground, so the subcommand decides which of
+// the two this is. Treating every `tray` argv as tray mode made those commands
+// detach, print "Loading Cartethyia…", and fail after the CLI exited 0.
+const TRAY_SUBCOMMANDS = new Set(["hide", "show", "toggle", "status"]);
+const trayMode = process.argv[2] === "tray" && !TRAY_SUBCOMMANDS.has(process.argv[3]);
 // The compiled gateway binary resolves its assets from this. A compiled Bun
 // executable has a virtual `import.meta.dir` (`B:/~BUN/root/cartethyia`), so
 // without it the package root falls back to `B:\` and startup dies with
