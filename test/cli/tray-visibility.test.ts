@@ -27,7 +27,12 @@ import {
   type UnixHelperFactory,
   type UnixHelperOptions,
 } from "../../scripts/cli/tray/index";
-import { applyTrayVisibility, requestTrayVisibility, respondToTrayRequest } from "../../scripts/cli/tray/commands";
+import {
+  applyTrayVisibility,
+  requestTrayVisibility,
+  respondToTrayRequest,
+  showIconOnExistingTray,
+} from "../../scripts/cli/tray/commands";
 
 let configDir: string;
 let originalConfigDir: string | undefined;
@@ -447,4 +452,64 @@ test("answering a request the tray could not apply leaves the old state alone", 
   await expect(respondToTrayRequest(tray, request)).rejects.toThrow("refused");
   expect(readTrayState()?.hidden).toBe(false);
   expect(readTrayState()?.nonce).toBeUndefined();
+});
+
+// ---------------------------------------------------------------------------
+// `carte --tray` when a tray already runs
+// ---------------------------------------------------------------------------
+
+/** Writes the controller record a running tray or menu leaves behind. */
+function writeControllerRecord(kind: "menu" | "tray", pid: number): void {
+  writeFileSync(
+    join(configDir, "controller.json"),
+    JSON.stringify({
+      pid,
+      parentPid: pid,
+      token: "test-token",
+      kind,
+      startedAt: new Date().toISOString(),
+    }),
+    "utf8",
+  );
+}
+
+test("a second carte --tray shows the icon of the tray that already runs", async () => {
+  writeControllerRecord("tray", process.pid);
+  writeTrayState({ pid: process.pid, hidden: true });
+
+  const shown = await showIconOnExistingTray({
+    sleep: async () => answerPendingRequest(false),
+  });
+
+  expect(shown).toBe(true);
+  expect(readTrayState()?.hidden).toBe(false);
+});
+
+test("a tray that is already visible is reported as shown, not restarted", async () => {
+  writeControllerRecord("tray", process.pid);
+  writeTrayState({ pid: process.pid, hidden: false });
+
+  const shown = await showIconOnExistingTray({
+    sleep: async () => answerPendingRequest(false),
+  });
+
+  expect(shown).toBe(true);
+});
+
+test("a menu owning the controller is left to the normal start path", async () => {
+  writeControllerRecord("menu", process.pid);
+  writeTrayState({ pid: process.pid, hidden: false });
+
+  expect(await showIconOnExistingTray()).toBe(false);
+  expect(existsSync(requestPath())).toBe(false);
+});
+
+test("no controller at all is left to the normal start path", async () => {
+  expect(await showIconOnExistingTray()).toBe(false);
+});
+
+test("a stale controller record does not count as a running tray", async () => {
+  writeControllerRecord("tray", await deadPid());
+
+  expect(await showIconOnExistingTray()).toBe(false);
 });

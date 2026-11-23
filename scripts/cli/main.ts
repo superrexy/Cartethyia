@@ -132,6 +132,27 @@ async function main(): Promise<void> {
         await runTrayCommand(subcommand);
         return;
       }
+      // A tray that already runs owns this install, and the usual way back to
+      // a hidden icon is to retype the command that started it. So a second
+      // `carte --tray` shows the icon instead of failing; a menu owner still
+      // falls through to the error, because two interactive UIs cannot share
+      // one gateway.
+      const { inheritedControllerHandoff } = await import("./controller");
+      if (inheritedControllerHandoff() === undefined) {
+        const { showIconOnExistingTray } = await import("./tray/commands");
+        try {
+          if (await showIconOnExistingTray()) {
+            console.log("Cartethyia tray is already running; icon shown.");
+            return;
+          }
+        } catch (error) {
+          console.error(
+            `Cartethyia tray is already running, but the icon could not be shown: ${error instanceof Error ? error.message : "unknown error"}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      }
       const { startTray } = await import("./tray");
       await startTray();
       return;

@@ -190,16 +190,24 @@ live controller owner is a tray, `carte --tray` writes a `show` request, reports
 live menu owner keeps the existing error, and the menu→tray handoff path is untouched.
 
 **Acceptance criteria:**
-- [ ] `carte --tray` with a hidden tray running prints an already-running line, exits 0, and the icon returns
-- [ ] Exactly one tray process exists afterwards (`pgrep -f "main.ts tray"` returns one pid)
-- [ ] `carte --tray` while a menu owns the controller still fails with the existing message
-- [ ] The menu's `Hide to Tray` handoff still works end to end
+- [x] `carte --tray` with a hidden tray running prints an already-running line, exits 0, and the icon returns
+- [x] Exactly one tray process exists afterwards (`pgrep -f "main.ts tray"` returns one pid)
+- [x] `carte --tray` while a menu owns the controller still fails with the existing message
+- [x] The menu's `Hide to Tray` handoff still works end to end
 
 **Verification:**
-- [ ] `bun run scripts/test/run.ts --scope scripts` passes (controller + handoff tests included)
-- [ ] `bun run typecheck` passes
-- [ ] Manual check: hide the icon, run `carte --tray`, confirm one tray and a visible icon
-- [ ] Manual check: `carte` → `Hide to Tray` → icon appears
+- [x] `bun run scripts/test/run.ts --scope scripts` passes — 81 pass / 0 fail (5 new tests)
+- [x] `bun run typecheck` passes (exit 0)
+- [x] Manual check on macOS, isolated instance: `tray hide` → icon hidden → `carte --tray` printed
+      `Cartethyia tray is already running; icon shown.`, exit 0, one tray process, helper count back
+      to 2, `status` reports visible, `/health` 200
+- [x] Manual check: the menu-owned and no-controller cases return `false` and fall through to the
+      normal start path (unit-tested); the `Hide to Tray` handoff is untouched — `inheritedControllerHandoff()`
+      is checked first and the handoff tests in `test/cli/controller.test.ts` still pass
+
+**Note:** the menu-owns-the-controller error was not re-demonstrated by hand, because doing so means
+starting a menu against the isolated instance and leaving it attached. It is covered by the
+`showIconOnExistingTray` unit test plus the unchanged `acquireController` path.
 
 **Dependencies:** Task 4
 

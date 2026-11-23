@@ -7,6 +7,7 @@ import {
   type TrayState,
   type TrayVisibilityRequest,
 } from "./control";
+import { readControllerOwner } from "../controller";
 import type { Tray } from "./index";
 
 /**
@@ -109,6 +110,22 @@ export async function requestTrayVisibility(
     clearTrayRequest();
     throw error;
   }
+}
+
+/**
+ * Turns a second `carte --tray` into "show the icon" when a tray already runs.
+ *
+ * The operator who hid the icon and wants it back is far more likely to retype
+ * the command they used to start it than to guess `carte tray show`. Reusing
+ * the already-running detection keeps the old error for the case that really is
+ * an error — a menu owning the install — and returns `false` so the caller's
+ * normal start path can report it.
+ */
+export async function showIconOnExistingTray(options: TrayCommandOptions = {}): Promise<boolean> {
+  const owner = readControllerOwner();
+  if (owner === null || owner.kind !== "tray") return false;
+  await requestTrayVisibility("show", options);
+  return true;
 }
 
 /**
