@@ -227,16 +227,22 @@ starting a menu against the isolated instance and leaving it attached. It is cov
 `NotifyIcon.Visible`, so the message loop and the menu survive.
 
 **Acceptance criteria:**
-- [ ] `windows.ps1` handles `{"action":"hide"}` and `{"action":"show"}`, toggles `$script:notifyIcon.Visible`, and writes `{"type":"hidden"}` / `{"type":"shown"}`
-- [ ] `WindowsTray.hide()`/`show()` send the action and resolve on the ack; a missing ack rejects after the timeout instead of reporting success
-- [ ] `isVisible()` tracks the last acknowledged state
-- [ ] `kill` still disposes the icon and ends the message loop
-- [ ] The protocol comment block at the top of `windows.ps1` documents the new actions and events
+- [x] `windows.ps1` handles `{"action":"hide"}` and `{"action":"show"}`, toggles `$script:notifyIcon.Visible`, and writes `{"type":"hidden"}` / `{"type":"shown"}`
+- [x] `WindowsTray.hide()`/`show()` send the action and resolve on the ack; a missing ack rejects after the timeout instead of reporting success
+- [x] `isVisible()` tracks the last acknowledged state
+- [x] `kill` still disposes the icon and ends the message loop
+- [x] The protocol comment block at the top of `windows.ps1` documents the new actions and events
 
 **Verification:**
-- [ ] `bun run scripts/test/run.ts --scope scripts test/cli/tray-visibility.test.ts` passes (payload + ack timeout)
-- [ ] `bun run typecheck` passes
+- [x] `bun run scripts/test/run.ts --scope scripts` passes — 87 pass / 0 fail (6 new tests)
+- [x] `bun run typecheck` passes (exit 0)
 - [ ] Manual check: **not possible on this machine** — stated explicitly in the final report
+
+**Bug found and fixed:** `WindowsTray.close()` set `#closed = true` before calling `#send()`, and
+`#send()` returns early when `#closed` is set — so the helper never received `kill` and was only
+removed by the 1.5 s timeout's `process.kill()`. The `kill` is now sent before the flag is set, which
+lets the helper dispose its icon and exit on its own. Found by the `windows kill still disposes the
+icon` test, which asserted on the last command sent rather than on the process dying.
 
 **Dependencies:** Tasks 3, 4
 

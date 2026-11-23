@@ -9,6 +9,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import type { ChildProcess } from "node:child_process";
+import { PassThrough } from "node:stream";
 import { join } from "node:path";
 import type { ClickEvent, MenuItem } from "systray2";
 import {
@@ -26,6 +28,7 @@ import {
   type TrayItem,
   type UnixHelperFactory,
   type UnixHelperOptions,
+  type WindowsHelperFactory,
 } from "../../scripts/cli/tray/index";
 import {
   applyTrayVisibility,
@@ -512,4 +515,155 @@ test("a stale controller record does not count as a running tray", async () => {
   writeControllerRecord("tray", await deadPid());
 
   expect(await showIconOnExistingTray()).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// Windows helper protocol
+//
+// The PowerShell helper is faked: this machine has no powershell.exe, and the
+// contract being tested is the JSON lines the two sides exchange.
+// ---------------------------------------------------------------------------
+
+interface FakeWindowsHelper {
+  readonly process: ChildProcess;
+  readonly sent: Record<string, unknown>[];
+  /** Emits one JSON line, as the helper would. */
+  emit(event: Record<string, unknown>): void;
+}
+
+function windowsHarness(): { spawn: WindowsHelperFactory; created: FakeWindowsHelper[] } {
+  const created: FakeWindowsHelper[] = [];
+  const spawn: WindowsHelperFactory = () => {
+    const stdout = new PassThrough();
+    const stdinChunks: string[] = [];
+    const stdin = new PassThrough();
+    stdin.on("data", (chunk: Buffer) => stdinChunks.push(chunk.toString("utf8")));
+    const listeners = new Map<string, ((...args: unknown[]) => void)[]>();
+    const record: FakeWindowsHelper = {
+      sent: [],
+      emit: (event) => stdout.write(`${JSON.stringify(event)}\n`),
+      process: {
+        stdout,
+        stdin,
+        once: (name: string, listener: (...args: unknown[]) => void) => {
+          listeners.set(name, [...(listeners.get(name) ?? []), listener]);
+          return record.process;
+        },
+        kill: () => true,
+      } as unknown as ChildProcess,
+    };
+    // Every complete line the tray writes is parsed back so tests can assert on
+    // actions. A chunk can end mid-line, so only newline-terminated lines count.
+    stdin.on("data", () => {
+      const lines = stdinChunks.join("").split("\n");
+      stdinChunks.length = 0;
+      stdinChunks.push(lines.pop() ?? "");
+      record.sent.length = 0;
+      for (const line of lines) {
+        if (line.trim() === "") continue;
+        record.sent.push(JSON.parse(line) as Record<string, unknown>);
+      }
+    });
+    created.push(record);
+    return record.process;
+  };
+  return { spawn, created };
+}
+
+async function windowsTray(harness: ReturnType<typeof windowsHarness>): Promise<{
+  tray: Tray;
+  exits: () => number;
+  selected: string[];
+}> {
+  const selected: string[] = [];
+  let exitCount = 0;
+  const tray = createTray(
+    {
+      iconPath: "C:\\cartethyia.ico",
+      tooltip: "Cartethyia test",
+      items: VISIBILITY_ROWS,
+      onSelect: (id) => selected.push(id),
+      onExit: () => {
+        exitCount += 1;
+      },
+    },
+    { spawnWindowsHelper: harness.spawn, platform: "win32" },
+  );
+  const helper = harness.created[0]!;
+  // The helper reports "started" and then "ready" once its icon exists.
+  helper.emit({ type: "started" });
+  helper.emit({ type: "ready" });
+  await tray.ready();
+  return { tray, exits: () => exitCount, selected };
+}
+
+test("windows hide sends the hide action and waits for the hidden ack", async () => {
+  const harness = windowsHarness();
+  const { tray } = await windowsTray(harness);
+
+  const hidden = tray.hide();
+  expect(harness.created[0]?.sent.at(-1)).toEqual({ action: "hide" });
+  expect(tray.isVisible()).toBe(true);
+
+  harness.created[0]?.emit({ type: "hidden" });
+  await hidden;
+
+  expect(tray.isVisible()).toBe(false);
+});
+
+test("windows show sends the show action and waits for the shown ack", async () => {
+  const harness = windowsHarness();
+  const { tray } = await windowsTray(harness);
+  const hidden = tray.hide();
+  harness.created[0]?.emit({ type: "hidden" });
+  await hidden;
+
+  const shown = tray.show();
+  expect(harness.created[0]?.sent.at(-1)).toEqual({ action: "show" });
+  harness.created[0]?.emit({ type: "shown" });
+  await shown;
+
+  expect(tray.isVisible()).toBe(true);
+});
+
+test("windows hide fails when the helper never acknowledges", async () => {
+  const harness = windowsHarness();
+  const { tray } = await windowsTray(harness);
+
+  await expect(tray.hide()).rejects.toThrow('did not confirm "hidden"');
+  // A failed change must not leave the tray claiming the icon is gone.
+  expect(tray.isVisible()).toBe(true);
+});
+
+test("windows hide and show are no-ops when the icon is already in that state", async () => {
+  const harness = windowsHarness();
+  const { tray } = await windowsTray(harness);
+
+  await tray.show();
+  expect(harness.created[0]?.sent.some((command) => command.action === "show")).toBe(false);
+});
+
+test("windows kill still disposes the icon", async () => {
+  const harness = windowsHarness();
+  const { tray } = await windowsTray(harness);
+
+  const closed = tray.close();
+  expect(harness.created[0]?.sent.at(-1)).toEqual({ action: "kill" });
+  harness.created[0]?.emit({ type: "exited" });
+  (harness.created[0]!.process as unknown as { emit?: (name: string) => void }).emit?.("exit");
+  await closed;
+});
+
+test("the windows script understands hide and show and answers with an ack", () => {
+  const script = readFileSync(join(import.meta.dir, "../../scripts/cli/tray/windows.ps1"), "utf8");
+
+  expect(script).toContain('"hide"');
+  expect(script).toContain('"show"');
+  expect(script).toContain('type = "hidden"');
+  expect(script).toContain('type = "shown"');
+  // Hiding must not dispose the icon: the helper keeps running so show works.
+  // The action handlers, not the protocol comment block at the top.
+  const hideBlock = script.slice(script.indexOf('"hide"        {'), script.indexOf('"show"        {'));
+  expect(hideBlock).toContain("$script:notifyIcon.Visible = $false");
+  expect(hideBlock).not.toContain("Dispose");
 });

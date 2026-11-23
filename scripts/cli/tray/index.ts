@@ -252,10 +252,14 @@ class WindowsTray implements Tray {
 
   async close(): Promise<void> {
     if (this.#closed) return;
-    this.#closed = true;
     this.#visible = false;
     this.#rejectAcks(new Error("the tray is closing"));
+    // Sent before `#closed` is set: `#send` refuses once the tray is closing,
+    // so setting the flag first meant the helper was never told to exit and
+    // only the timeout below removed it. It then disposed its icon on a kill
+    // instead of on its own terms.
     this.#send({ action: "kill" });
+    this.#closed = true;
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         this.#process.kill();
