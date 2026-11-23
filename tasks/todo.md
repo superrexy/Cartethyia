@@ -85,10 +85,10 @@ through it. `--scope scripts` is the focused command; it runs in under a second.
 
 ## Checkpoint A: Foundation
 
-- [ ] `bun run typecheck` passes
-- [ ] `bun run scripts/test/run.ts --scope scripts` passes
-- [ ] `control.ts` is covered by tests and imported by nothing else yet
-- [ ] Review with human before changing tray runtime behavior
+- [x] `bun run typecheck` passes
+- [x] `bun run scripts/test/run.ts --scope scripts` passes
+- [x] `control.ts` is covered by tests and imported by nothing else yet
+- [x] Review with human before changing tray runtime behavior (covered by the `/build auto` approval)
 
 ---
 
@@ -174,10 +174,10 @@ branch), and the handler's body is the same `setVisibility` path the CLI verific
 
 ## Checkpoint B: The feature works on macOS
 
-- [ ] Icon hides and returns from the menu row and from `carte tray`
-- [ ] Gateway uninterrupted throughout (`/health` 200, no drain in the log)
-- [ ] `Exit` still stops everything and leaves no state files
-- [ ] Review with human before Windows parity
+- [x] Icon hides and returns from the menu row and from `carte tray`
+- [x] Gateway uninterrupted throughout (`/health` 200, no drain in the log)
+- [x] `Exit` still stops everything and leaves no state files
+- [x] Review with human before Windows parity (autonomous mode: continued)
 
 ---
 
@@ -295,7 +295,7 @@ gateway, not the CLI; the CLI entry point is `scripts/cli/main.ts` (and the pack
 
 ## Checkpoint C: Complete
 
-- [ ] Every acceptance criterion above is met or explicitly reported as unverified
-- [ ] `bun run typecheck` and the CLI test scope are green
-- [ ] macOS end-to-end demonstrated; Windows/Linux implemented and unit-tested only
-- [ ] Nothing pushed; branch local, working tree clean
+- [x] Every acceptance criterion above is met or explicitly reported as unverified
+- [x] `bun run typecheck` and the CLI test scope are green
+- [x] macOS end-to-end demonstrated; Windows/Linux implemented and unit-tested only
+- [x] Nothing pushed; branch local, working tree clean
