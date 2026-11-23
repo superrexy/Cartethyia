@@ -31,6 +31,14 @@ export interface TrayState {
   readonly pid: number;
   readonly hidden: boolean;
   readonly updatedAt: string;
+  /**
+   * The request this record answers, when it answers one.
+   *
+   * Timestamps cannot carry this: a tray acting inside the same millisecond as
+   * the request would look identical to the state that was already there. The
+   * nonce is the only thing that says "this is the change you asked for".
+   */
+  readonly nonce?: string;
 }
 
 const REQUEST_FILE = "tray-request.json";
@@ -121,11 +129,12 @@ function parseRequest(value: unknown): TrayRequest | null {
 function parseState(value: unknown): TrayState | null {
   if (value === null || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
-  const { pid, hidden, updatedAt } = record;
+  const { pid, hidden, updatedAt, nonce } = record;
   if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return null;
   if (typeof hidden !== "boolean") return null;
   if (typeof updatedAt !== "string") return null;
-  return { pid, hidden, updatedAt };
+  if (nonce !== undefined && typeof nonce !== "string") return null;
+  return { pid, hidden, updatedAt, ...(nonce === undefined ? {} : { nonce }) };
 }
 
 /** Asks the running tray to change its icon. Overwrites any pending request. */
@@ -159,8 +168,17 @@ export function clearTrayRequest(): void {
 }
 
 /** Records what the tray is showing, for `carte tray status` and the CLI's wait. */
-export function writeTrayState(state: { readonly pid: number; readonly hidden: boolean }): void {
-  const next: TrayState = { pid: state.pid, hidden: state.hidden, updatedAt: new Date().toISOString() };
+export function writeTrayState(state: {
+  readonly pid: number;
+  readonly hidden: boolean;
+  readonly nonce?: string;
+}): void {
+  const next: TrayState = {
+    pid: state.pid,
+    hidden: state.hidden,
+    updatedAt: new Date().toISOString(),
+    ...(state.nonce === undefined ? {} : { nonce: state.nonce }),
+  };
   writeAtomic(join(configDir(), STATE_FILE), next);
 }
 

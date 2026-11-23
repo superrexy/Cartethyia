@@ -414,26 +414,32 @@ class UnixTray implements Tray {
     return this.#visible;
   }
 
-  /** Ends one helper, tolerating one that is already gone. */
+  /**
+   * Ends one helper, treating "already gone" as done.
+   *
+   * A failure to end it is reported, not swallowed: `hide()` must not claim the
+   * icon is gone while the helper that draws it is still running. `close()`
+   * tolerates the same error, because shutdown has nothing left to prove.
+   */
   async #end(helper: TrayHelper): Promise<void> {
     const helperProcess = helper.process;
     // `kill()` settles on the helper's `exit` event, so a helper that already
     // exited would leave it pending forever and hang the shutdown after it.
     if (helperProcess.exitCode !== null || helperProcess.signalCode !== null) return;
-    try {
-      // `false`: systray2 otherwise calls `process.exit(0)` when the helper
-      // exits, which discards the exit code this close was given.
-      await helper.kill(false);
-    } catch {
-      // The helper may already be gone.
-    }
+    // `false`: systray2 otherwise calls `process.exit(0)` when the helper
+    // exits, which discards the exit code this close was given.
+    await helper.kill(false);
   }
 
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
     this.#visible = false;
-    await this.#end(this.#helper);
+    try {
+      await this.#end(this.#helper);
+    } catch {
+      // The helper may already be gone; this process is exiting either way.
+    }
   }
 }
 

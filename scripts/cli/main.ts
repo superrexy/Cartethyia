@@ -26,6 +26,10 @@ const HELP = (minimumBunVersion: string) => `Cartethyia ${minimumBunVersion}+ (B
 Usage:
   carte                  start, then show an arrow-key menu (no GUI needed)
   carte --tray           start with a system-tray icon instead
+  carte tray hide        remove the tray icon, keep the gateway running
+  carte tray show        put the tray icon back
+  carte tray toggle      flip the icon's visibility
+  carte tray status      report whether the tray is running and what it shows
   cartethyia setup [--non-interactive]
   cartethyia start
   cartethyia stop
@@ -42,6 +46,8 @@ Exit. Arrow keys and Enter; no desktop environment needed, so it works over SSH
 and headless. A menu started by this command drains its child gateway on Exit;
 leaving a menu attached to an existing gateway only detaches. Use stop for that.
 carte --tray uses a system-tray icon instead, which needs a graphical session.
+Hiding the icon is not stopping Cartethyia: the gateway keeps serving, and
+carte tray show (or another carte --tray) brings the icon back.
 Stop a detached gateway with cartethyia stop (or the install's ./carte stop).
 Setup explains Lite (embedded SQLite) and Full (external PostgreSQL), then saves
 configuration under the current user's Cartethyia config directory.
@@ -117,6 +123,15 @@ async function main(): Promise<void> {
       return;
     }
     case "tray": {
+      // A subcommand asks the running tray for something; a bare `tray` starts
+      // one. Checked before the import so `carte tray hide` never drags the
+      // gateway, the dashboard and the database driver into memory.
+      const subcommand = process.argv[3]?.trim();
+      if (subcommand === "hide" || subcommand === "show" || subcommand === "toggle" || subcommand === "status") {
+        const { runTrayCommand } = await import("./tray/commands");
+        await runTrayCommand(subcommand);
+        return;
+      }
       const { startTray } = await import("./tray");
       await startTray();
       return;

@@ -137,19 +137,29 @@ file, state cleanup on `Exit`, and the `carte tray hide|show|toggle|status` subc
 request and wait for the state file to confirm it.
 
 **Acceptance criteria:**
-- [ ] Tray menu shows `Hide icon` between `Backup` and `Exit`; clicking it removes the icon within 2 s
-- [ ] While hidden, the tray process stays alive and `GET /health` still answers 200
-- [ ] `carte tray show` restores the icon within 2 s; `carte tray toggle` flips it; `carte tray status` prints `icon hidden` / `icon visible` with the tray pid
-- [ ] `carte tray hide` with no tray running prints a clear message and exits non-zero without leaving a request file
-- [ ] `hide`/`show`/`toggle`/`status` never drain, stop, or restart the gateway, and never write `controller.json`
-- [ ] `Exit` stops the gateway as before and removes `tray-state.json` and any pending `tray-request.json`
-- [ ] No dynamic import is added in `scripts/cli` without the documented comment shape
+- [x] Tray menu shows `Hide icon` between `Backup` and `Exit`; clicking it removes the icon within 2 s
+- [x] While hidden, the tray process stays alive and `GET /health` still answers 200
+- [x] `carte tray show` restores the icon within 2 s; `carte tray toggle` flips it; `carte tray status` prints `icon hidden` / `icon visible` with the tray pid
+- [x] `carte tray hide` with no tray running prints a clear message and exits non-zero without leaving a request file
+- [x] `hide`/`show`/`toggle`/`status` never drain, stop, or restart the gateway, and never write `controller.json`
+- [x] `Exit` stops the gateway as before and removes `tray-state.json` and any pending `tray-request.json`
+- [x] No dynamic import is added in `scripts/cli` without the documented comment shape
 
 **Verification:**
-- [ ] `bun run scripts/test/run.ts --scope scripts` passes
-- [ ] `bun run typecheck` passes
-- [ ] Manual check on macOS: start the tray from the fork, hide from the menu row, confirm icon gone and `/health` 200, restore with `carte tray show`, click `Open Console`
-- [ ] Manual check: `carte tray status` before/after, and with no tray running
+- [x] `bun run scripts/test/run.ts --scope scripts` passes — 76 pass / 0 fail
+- [x] `bun run typecheck` passes (exit 0)
+- [x] Manual check on macOS, isolated instance (own config dir, data dir, PORT=12990) so the
+      operator's tray was never touched: hide → icon gone, helper count 1 (only the operator's),
+      `/health` 200, `status` reports hidden; show → helper count 2, `status` visible; toggle both
+      ways; `/health` 200 throughout
+- [x] Manual check: `carte tray hide` with no tray running → `No Cartethyia tray is running; start one
+      with carte --tray`, exit 1, config dir left empty; `tray status` with no tray → exit 0
+- [x] Manual check: killing the tray removed `tray-state.json` and `controller.json` and left the
+      gateway stopped, as `Exit` should
+
+**Not automated:** the menu-row click itself needs UI scripting (Accessibility permission). The row
+and its handler are verified by inspection (`id: "hide"` row at the documented position, `handleSelect`
+branch), and the handler's body is the same `setVisibility` path the CLI verification exercised.
 
 **Dependencies:** Tasks 2, 3
 

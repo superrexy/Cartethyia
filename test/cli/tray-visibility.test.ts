@@ -27,6 +27,7 @@ import {
   type UnixHelperFactory,
   type UnixHelperOptions,
 } from "../../scripts/cli/tray/index";
+import { applyTrayVisibility, requestTrayVisibility, respondToTrayRequest } from "../../scripts/cli/tray/commands";
 
 let configDir: string;
 let originalConfigDir: string | undefined;
@@ -332,4 +333,118 @@ test("closing while hidden does not kill a second time and stays invisible", asy
 
   expect(harness.created[0]?.killCalls).toBe(1);
   expect(tray.isVisible()).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// Applying a request, and the CLI command that asks for one
+// ---------------------------------------------------------------------------
+
+test("a hide request ends with the icon hidden and the gateway untouched", async () => {
+  const harness = unixHarness();
+  const { tray, exits } = unixTray(harness);
+  await tray.ready();
+
+  expect(await applyTrayVisibility(tray, "hide")).toBe(true);
+  expect(tray.isVisible()).toBe(false);
+  expect(exits()).toBe(0);
+});
+
+test("toggle flips the current visibility in both directions", async () => {
+  const harness = unixHarness();
+  const { tray } = unixTray(harness);
+  await tray.ready();
+
+  expect(await applyTrayVisibility(tray, "toggle")).toBe(true);
+  expect(await applyTrayVisibility(tray, "toggle")).toBe(false);
+  expect(tray.isVisible()).toBe(true);
+});
+
+test("a request with no tray running fails instead of queueing", async () => {
+  await expect(requestTrayVisibility("hide")).rejects.toThrow("No Cartethyia tray is running");
+});
+
+/**
+ * Answers the pending request the way the tray does: read the nonce, act, write
+ * the state that quotes it back.
+ */
+function answerPendingRequest(hidden: boolean): void {
+  const request = JSON.parse(readFileSync(requestPath(), "utf8")) as { nonce: string };
+  writeTrayState({ pid: process.pid, hidden, nonce: request.nonce });
+}
+
+test("hide waits for the tray to record the change", async () => {
+  writeTrayState({ pid: process.pid, hidden: false });
+
+  const state = await requestTrayVisibility("hide", {
+    // The tray answers on the first poll, like the 1 s loop does in practice.
+    sleep: async () => answerPendingRequest(true),
+  });
+
+  expect(state.hidden).toBe(true);
+});
+
+test("show waits for the tray to record the change", async () => {
+  writeTrayState({ pid: process.pid, hidden: true });
+
+  const state = await requestTrayVisibility("show", {
+    sleep: async () => answerPendingRequest(false),
+  });
+
+  expect(state.hidden).toBe(false);
+});
+
+test("toggle waits for the tray to answer this request, not just any state", async () => {
+  writeTrayState({ pid: process.pid, hidden: false });
+
+  const state = await requestTrayVisibility("toggle", {
+    sleep: async () => {
+      // A state written without the request's nonce is the tray's own earlier
+      // record, not an answer: acting on it would report success for a request
+      // the tray may never have read.
+      writeTrayState({ pid: process.pid, hidden: true });
+      answerPendingRequest(true);
+    },
+  });
+
+  expect(state.hidden).toBe(true);
+});
+
+test("a tray that never answers fails and leaves no request behind", async () => {
+  writeTrayState({ pid: process.pid, hidden: false });
+
+  await expect(requestTrayVisibility("hide", { timeoutMs: 0 })).rejects.toThrow("did not");
+  // A request left in the directory would act on the tray minutes later, long
+  // after the operator saw the failure.
+  expect(existsSync(requestPath())).toBe(false);
+});
+
+test("answering a request records the nonce the asker is waiting for", async () => {
+  const harness = unixHarness();
+  const { tray } = unixTray(harness);
+  await tray.ready();
+  const request = writeTrayRequest("hide");
+
+  const hidden = await respondToTrayRequest(tray, request);
+
+  expect(hidden).toBe(true);
+  // Without the nonce the CLI cannot tell this record from the state that was
+  // already there, and reports a failure for a change that did happen.
+  expect(readTrayState()?.nonce).toBe(request.nonce);
+  expect(readTrayState()?.hidden).toBe(true);
+});
+
+test("answering a request the tray could not apply leaves the old state alone", async () => {
+  writeTrayState({ pid: process.pid, hidden: false });
+  const harness = unixHarness();
+  const { tray } = unixTray(harness);
+  await tray.ready();
+  const request = writeTrayRequest("hide");
+  // A helper that refuses to die must not be reported as hidden.
+  harness.created[0]!.helper.kill = async () => {
+    throw new Error("helper refused to exit");
+  };
+
+  await expect(respondToTrayRequest(tray, request)).rejects.toThrow("refused");
+  expect(readTrayState()?.hidden).toBe(false);
+  expect(readTrayState()?.nonce).toBeUndefined();
 });
