@@ -262,16 +262,25 @@ then run the full gate and write the report: what changed, what ran, what passed
 verified on this machine.
 
 **Acceptance criteria:**
-- [ ] README CLI section lists `carte tray hide|show|toggle|status` and the `Hide icon` row, and states that hiding keeps the gateway running
-- [ ] The existing `carte --tray` description notes the already-running behavior
-- [ ] All repository artifacts added by this work are in English
-- [ ] `SPEC.md` stays the source of truth for the shipped behavior (update only if an implemented detail diverges, and say so in the report)
+- [x] README CLI section lists `carte tray hide|show|toggle|status` and the `Hide icon` row, and states that hiding keeps the gateway running
+- [x] The existing `carte --tray` description notes the already-running behavior
+- [x] All repository artifacts added by this work are in English
+- [x] `SPEC.md` stays the source of truth for the shipped behavior (update only if an implemented detail diverges, and say so in the report)
 
 **Verification:**
-- [ ] `bun run typecheck` passes
-- [ ] `bun run scripts/test/run.ts --scope scripts` passes
-- [ ] `bun run build` succeeds (if it needs a database or a long build, report that it was skipped and why)
-- [ ] Final report lists every check with its outcome and every unverified platform
+- [x] `bun run typecheck` passes (exit 0)
+- [x] `bun run scripts/test/run.ts --scope scripts` passes — 87 pass / 1 skip / 0 fail (88 tests, 13 files)
+- [x] `bun run build` succeeds: dashboard build, AOT manifest, and `dist/cartethyia` compiled
+- [x] Final report lists every check with its outcome and every unverified platform
+
+**Spec updates folded in:** `Status:` moved to `implemented`; the state record's `nonce` field and the
+`UnixTray.hide()` failure rule were added, because the implementation found two things the spec's
+first draft got wrong — timestamps cannot attribute an ack, and a swallowed `kill()` error could
+report a hidden icon that was still on screen.
+
+**Observed, not changed:** `dist/cartethyia` boots the gateway even for `--help`. That binary is the
+gateway, not the CLI; the CLI entry point is `scripts/cli/main.ts` (and the packaged
+`scripts/cli/bin/cartethyia.cjs`). Pre-existing and unrelated to this work.
 
 **Dependencies:** Tasks 4, 5, 6
 

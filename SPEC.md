@@ -1,6 +1,6 @@
 # Spec: Tray Icon Hide/Show — V1
 
-Status: proposed
+Status: implemented
 Repository: `superrexy/Cartethyia` (fork of `risunCodex/Cartethyia`), branch `feat/tray-hide-icon`
 
 ## Objective
@@ -99,7 +99,12 @@ Two files in `resolveUserConfigDir()` (mode `0600`), next to `controller.json`:
 - `tray-request.json` — written by a CLI command, consumed once by the running tray:
   `{ "request": "show" | "hide" | "toggle", "nonce": "<uuid>", "requestedAt": "<ISO>" }`
 - `tray-state.json` — written by the tray on every visibility change and on startup:
-  `{ "pid": <number>, "hidden": <boolean>, "updatedAt": "<ISO>" }`
+  `{ "pid": <number>, "hidden": <boolean>, "updatedAt": "<ISO>", "nonce"?: "<uuid>" }`
+
+  `nonce` is the request this record answers, copied from `tray-request.json`. It is what lets a
+  command tell its own answer from the state that was already there: timestamps cannot, because a
+  tray acting inside the same millisecond as the request produces an identical record, which made
+  `toggle` report a failure for a change that had happened.
 
 Rules:
 
@@ -136,6 +141,9 @@ export interface Tray {
   ack with a 2 s timeout; a missing ack rejects so the caller can report a failure instead of
   pretending the icon changed. The PowerShell helper keeps running and only toggles
   `notifyIcon.Visible`.
+- `UnixTray.hide()` reports a failure to end the helper rather than swallowing it, so a hide cannot
+  claim the icon is gone while the helper that draws it still runs. `close()` tolerates the same
+  error, because shutdown has nothing left to prove.
 - `isVisible()` is local state, not a probe; it is what `tray-state.json` records.
 
 ### Tray runtime (`scripts/cli/tray.ts`)
