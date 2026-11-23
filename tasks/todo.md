@@ -102,17 +102,22 @@ re-registers the same rows and click handling, and `isVisible()` reports local s
 injectable factory seam lets the tests drive the helper without spawning a real one.
 
 **Acceptance criteria:**
-- [ ] `Tray` exposes `hide(): Promise<void>`, `show(): Promise<void>`, `isVisible(): boolean`; `close()` still removes the icon and ends the helper
-- [ ] `hide()` calls the helper with `kill(false)` and does not call `process.exit`
-- [ ] The helper's `exit` event fired during `hide()` does not reach `onExit`; an exit outside `hide()` still does
-- [ ] `show()` after `hide()` creates a new helper and a click on a row still resolves to the same `id` (including hide → show → hide → show)
-- [ ] `hide()` on an already-hidden tray and `show()` on an already-visible tray are no-ops
-- [ ] `isVisible()` is `false` after `hide()` and `true` after `show()`
+- [x] `Tray` exposes `hide(): Promise<void>`, `show(): Promise<void>`, `isVisible(): boolean`; `close()` still removes the icon and ends the helper
+- [x] `hide()` calls the helper with `kill(false)` and does not call `process.exit`
+- [x] The helper's `exit` event fired during `hide()` does not reach `onExit`; an exit outside `hide()` still does
+- [x] `show()` after `hide()` creates a new helper and a click on a row still resolves to the same `id` (including hide → show → hide → show)
+- [x] `hide()` on an already-hidden tray and `show()` on an already-visible tray are no-ops
+- [x] `isVisible()` is `false` after `hide()` and `true` after `show()`
 
 **Verification:**
-- [ ] `bun run scripts/test/run.ts --scope scripts test/cli/tray-visibility.test.ts` passes
-- [ ] `bun run typecheck` passes
-- [ ] Manual check: none yet (no caller)
+- [x] `bun run scripts/test/run.ts --scope scripts` passes — 67 pass / 0 fail (7 new tests)
+- [x] `bun run typecheck` passes (exit 0)
+- [x] Manual check: none yet (no caller)
+
+**Deviation:** `WindowsTray` implements `hide()`/`show()` in this task too, together with the
+`windows.ps1` actions. The interface cannot gain three members without every implementation
+compiling, and shipping a Windows path that silently does nothing would be worse than shipping the
+real one early. Task 6 therefore owns the Windows protocol tests rather than the implementation.
 
 **Dependencies:** Task 1
 
