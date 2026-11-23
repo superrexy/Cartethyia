@@ -1,12 +1,13 @@
 import {
-  clearTrayRequest,
+  awaitTrayChange,
   readTrayState,
   writeTrayRequest,
   writeTrayState,
+  type TrayChangeOptions,
   type TrayRequest,
   type TrayState,
   type TrayVisibilityRequest,
-} from "./control";
+} from "../../../src/console/tray/control";
 import { readControllerOwner } from "../controller";
 import type { Tray } from "./index";
 
@@ -19,24 +20,7 @@ import type { Tray } from "./index";
  * tested without a gateway, a helper, or a menu bar.
  */
 
-/**
- * How long a command waits for the tray to confirm it acted.
- *
- * The tray polls every second and the change itself is immediate, so this is
- * several polls' worth of slack. It exists so a tray that stopped polling —
- * wedged, or replaced by a stale pid — fails the command instead of hanging it.
- */
-const COMMAND_TIMEOUT_MS = 3_000;
-
-/** How often the command re-reads the state file while it waits. */
-const COMMAND_POLL_MS = 100;
-
-export interface TrayCommandOptions {
-  readonly timeoutMs?: number;
-  readonly pollMs?: number;
-  /** Yields between polls. Injected so tests do not wait in real time. */
-  readonly sleep?: (ms: number) => Promise<void>;
-}
+export type TrayCommandOptions = TrayChangeOptions;
 
 /**
  * Applies one request to a live tray and reports the resulting visibility.
@@ -67,19 +51,13 @@ export async function respondToTrayRequest(tray: Tray, request: TrayRequest): Pr
   return hidden;
 }
 
-function describe(request: TrayVisibilityRequest): string {
-  if (request === "hide") return "hide the icon";
-  if (request === "show") return "show the icon";
-  return "change the icon";
-}
-
 /**
  * Asks the running tray to change its icon and waits for it to say it did.
  *
  * The state file is the acknowledgement: without it a command would print
- * success for a request the tray never read. A command that gives up removes
- * its own request, because a request left behind would act on the tray minutes
- * later — long after the operator was told it failed.
+ * success for a request the tray never read. The wait itself lives in the
+ * control channel, so the console route that asks the same question cannot end
+ * up with a different idea of what "confirmed" means.
  */
 export async function requestTrayVisibility(
   request: TrayVisibilityRequest,
@@ -89,27 +67,7 @@ export async function requestTrayVisibility(
     throw new Error("No Cartethyia tray is running; start one with carte --tray");
   }
   const sent = writeTrayRequest(request);
-  const desired = request === "hide" ? true : request === "show" ? false : null;
-  const timeoutMs = options.timeoutMs ?? COMMAND_TIMEOUT_MS;
-  const pollMs = options.pollMs ?? COMMAND_POLL_MS;
-  const sleep = options.sleep ?? Bun.sleep;
-  const deadline = Date.now() + timeoutMs;
-  try {
-    while (Date.now() < deadline) {
-      const state = readTrayState();
-      // The nonce is what ties this record to this request. A toggle has no
-      // fixed target, so its nonce alone settles it; hide and show also check
-      // that the tray ended up in the state that was asked for.
-      if (state?.nonce === sent.nonce && (desired === null || state.hidden === desired)) {
-        return state;
-      }
-      await sleep(pollMs);
-    }
-    throw new Error(`The tray did not ${describe(request)} within ${timeoutMs} ms`);
-  } catch (error) {
-    clearTrayRequest();
-    throw error;
-  }
+  return awaitTrayChange(request, sent, options);
 }
 
 /**

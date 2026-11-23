@@ -20,7 +20,7 @@ import {
   readTrayState,
   writeTrayRequest,
   writeTrayState,
-} from "../../scripts/cli/tray/control";
+} from "../../src/console/tray/control";
 import {
   createTray,
   type Tray,

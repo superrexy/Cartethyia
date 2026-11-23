@@ -1,22 +1,26 @@
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pidAlive } from "../instance";
+import { pidAlive } from "../../shared/process";
 
 /**
- * The channel a CLI command uses to change a running tray's icon.
+ * The channel a CLI command or a console route uses to change a running tray's
+ * icon.
  *
- * Two small files in the config directory instead of a socket: the command that
- * hides or shows the icon is usually run from a terminal that is not the tray's
- * parent, and a file needs no port, no handshake, and no dependency. The tray
- * polls the request file and answers through the state file, so a command can
- * wait for the change it asked for instead of assuming it happened.
+ * Two small files in the config directory instead of a socket: the process that
+ * hides or shows the icon is usually not the tray's parent, and a file needs no
+ * port, no handshake, and no dependency. The tray polls the request file and
+ * answers through the state file, so a caller can wait for the change it asked
+ * for instead of assuming it happened.
  *
  * Both files are advisory. A missing, truncated, or hand-edited file is read as
  * "nothing to do" and discarded — a tray must never die because the operator
  * edited a JSON file.
+ *
+ * Lives under `src/console/` because the console route and the CLI share it, and
+ * `src/` must not import from `scripts/`. The tray itself imports it from here.
  */
 
-/** What a command can ask the tray to do. */
+/** What a caller can ask the tray to do. */
 export type TrayVisibilityRequest = "hide" | "show" | "toggle";
 
 /** A pending request, consumed once by the tray. */
@@ -26,7 +30,7 @@ export interface TrayRequest {
   readonly requestedAt: string;
 }
 
-/** What the tray last did, so a command can confirm its request landed. */
+/** What the tray last did, so a caller can confirm its request landed. */
 export interface TrayState {
   readonly pid: number;
   readonly hidden: boolean;
@@ -41,21 +45,66 @@ export interface TrayState {
   readonly nonce?: string;
 }
 
+/**
+ * Raised when the gateway has no config directory to write to.
+ *
+ * Its own type so a caller can report "tray control is unavailable here"
+ * instead of a 500: a gateway started without `CARTETHYIA_CONFIG_DIR` is a
+ * configuration state, not a crash.
+ */
+export class TrayControlUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TrayControlUnavailableError";
+  }
+}
+
 const REQUEST_FILE = "tray-request.json";
 const STATE_FILE = "tray-state.json";
+
+/**
+ * How long a caller waits for the tray to confirm it acted.
+ *
+ * The tray polls every second and the change itself is immediate, so this is
+ * several polls' worth of slack. It exists so a tray that stopped polling —
+ * wedged, or replaced by a stale pid — fails the caller instead of hanging it.
+ */
+export const TRAY_CHANGE_TIMEOUT_MS = 3_000;
+
+/** How often a caller re-reads the state file while it waits. */
+export const TRAY_CHANGE_POLL_MS = 100;
+
+/** Raised when the tray did not confirm the change before the deadline. */
+export class TrayChangeTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TrayChangeTimeoutError";
+  }
+}
+
+/** Pacing for {@link awaitTrayChange}; injected so tests do not wait in real time. */
+export interface TrayChangeOptions {
+  readonly timeoutMs?: number;
+  readonly pollMs?: number;
+  /** Yields between polls. */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
 
 /**
  * The installation's config directory.
  *
  * `scripts/cli/main.ts` resolves and exports this before any subcommand runs,
- * so an unset value means the tray module was reached from somewhere that never
- * loaded the user's config — a bug worth naming rather than writing control
- * files into whatever directory the process happens to have.
+ * and a tray-started gateway inherits it, so an unset value means the caller
+ * was reached from somewhere that never loaded the user's config — a bug worth
+ * naming rather than writing control files into whatever directory the process
+ * happens to have.
  */
 function configDir(): string {
   const dir = process.env.CARTETHYIA_CONFIG_DIR;
   if (!dir) {
-    throw new Error("The Cartethyia config directory is unavailable; start carte before using tray commands");
+    throw new TrayControlUnavailableError(
+      "The Cartethyia config directory is unavailable; start carte before using tray commands",
+    );
   }
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -64,7 +113,7 @@ function configDir(): string {
 /**
  * Replaces a file in one step.
  *
- * The tray polls while a command writes, so a plain write would let it read a
+ * The tray polls while a caller writes, so a plain write would let it read a
  * half-written document and discard a request that was actually valid. The
  * rename is atomic, so a reader sees either the previous file or the new one.
  */
@@ -167,7 +216,7 @@ export function clearTrayRequest(): void {
   discard(join(configDir(), REQUEST_FILE));
 }
 
-/** Records what the tray is showing, for `carte tray status` and the CLI's wait. */
+/** Records what the tray is showing, for `carte tray status` and any caller's wait. */
 export function writeTrayState(state: {
   readonly pid: number;
   readonly hidden: boolean;
@@ -187,7 +236,7 @@ export function writeTrayState(state: {
  *
  * A record owned by a process that is no longer alive is a leftover from a tray
  * that exited without cleaning up — it reads as "no tray running" and is
- * removed, so `status` cannot report an icon that is not there.
+ * removed, so no caller can report an icon that is not there.
  */
 export function readTrayState(): TrayState | null {
   const path = join(configDir(), STATE_FILE);
@@ -199,7 +248,54 @@ export function readTrayState(): TrayState | null {
   return state;
 }
 
-/** Removes the state record, so no later command reads a dead tray's icon. */
+/** Removes the state record, so no later caller reads a dead tray's icon. */
 export function clearTrayState(): void {
   discard(join(configDir(), STATE_FILE));
+}
+
+function describe(request: TrayVisibilityRequest): string {
+  if (request === "hide") return "hide the icon";
+  if (request === "show") return "show the icon";
+  return "change the icon";
+}
+
+/**
+ * Waits until the tray confirms the request it was given.
+ *
+ * Owned here, next to the two files it reads, because three surfaces ask for the
+ * change — the CLI, `carte --tray` when a tray already runs, and the console —
+ * and a second copy of this loop is how one of them ends up trusting the state
+ * that was already there.
+ *
+ * A caller that gives up removes its own request: a request left behind would
+ * act on the tray minutes later, long after the operator was told it failed.
+ */
+export async function awaitTrayChange(
+  request: TrayVisibilityRequest,
+  sent: TrayRequest,
+  options: TrayChangeOptions = {},
+): Promise<TrayState> {
+  const desired = request === "hide" ? true : request === "show" ? false : null;
+  const timeoutMs = options.timeoutMs ?? TRAY_CHANGE_TIMEOUT_MS;
+  const pollMs = options.pollMs ?? TRAY_CHANGE_POLL_MS;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const deadline = Date.now() + timeoutMs;
+  try {
+    while (Date.now() < deadline) {
+      const state = readTrayState();
+      // The nonce is what ties this record to this request. A toggle has no
+      // fixed target, so its nonce alone settles it; hide and show also check
+      // that the tray ended up in the state that was asked for.
+      if (state?.nonce === sent.nonce && (desired === null || state.hidden === desired)) {
+        return state;
+      }
+      await sleep(pollMs);
+    }
+    throw new TrayChangeTimeoutError(
+      `The tray did not ${describe(request)} within ${timeoutMs} ms`,
+    );
+  } catch (error) {
+    clearTrayRequest();
+    throw error;
+  }
 }

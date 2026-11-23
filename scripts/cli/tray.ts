@@ -16,7 +16,7 @@ import {
   clearTrayState,
   consumeTrayRequest,
   writeTrayState,
-} from "./tray/control";
+} from "../../src/console/tray/control";
 
 /**
  * Runs the gateway with a tray icon. The tray is platform-specific (`tray/`):
