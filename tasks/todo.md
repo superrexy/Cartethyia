@@ -327,14 +327,39 @@ observations the spec's success criteria name. **Blocked on operator consent** �
 stopping the tray and gateway currently running on this machine.
 
 **Acceptance criteria:**
-- [ ] Settings → Tray reports the running tray and `icon visible`
-- [ ] `Hide icon` → the icon leaves the menu bar within 2 s, `GET /health` still answers 200, `carte tray status` prints `icon hidden`
-- [ ] `Show icon` → the icon returns within 2 s, `carte tray status` prints `icon visible`
-- [ ] The tray menu still works after both directions (`Open Console` opens the dashboard)
+- [x] Settings → Tray reports the running tray and `icon visible`
+- [x] `Hide icon` → the icon leaves the menu bar within 2 s, `GET /health` still answers 200, `carte tray status` prints `icon hidden`
+- [x] `Show icon` → the icon returns within 2 s, `carte tray status` prints `icon visible`
+- [ ] The tray menu still works after both directions (`Open Console` opens the dashboard) — **not clicked**: a real menu bar click cannot be driven from here. The row→id resolution after a hide/show cycle is covered by `test/cli/tray-visibility.test.ts` ("show starts a new helper and the same rows still resolve to their ids").
 
 **Verification:**
-- [ ] Manual, on this machine, with the operator's agreement
-- [ ] If declined: reported as unverified in the final report, not claimed as passing
+- [x] Manual, on this machine, with the operator's agreement
+- [x] If declined: reported as unverified in the final report, not claimed as passing
+
+**How it was run:** an isolated install (`mkdtemp` config + data dir, port 17999, Lite mode), so no
+operator data was touched, with `CARTETHYIA_GATEWAY_BINARY=src/main.ts` so the tray started the
+gateway from current source rather than the stale `dist/cartethyia`. The dashboard bundle was rebuilt
+(`bun run dashboard:build`) so the served UI contained the new card. The panel was driven in a real
+browser (Lightpanda): sign-in → Settings → the Tray card → `Hide icon` → `Show icon`.
+
+| Observation | Result |
+|---|---|
+| Panel state while visible | "The tray is running, with its icon visible", Hide enabled |
+| `Hide icon` from the browser | 200 in 0.92 s; helper process (`tray_darwin_release`, the icon itself) gone after 0.99 s; toast "Icon hidden"; state carried the request nonce |
+| Gateway while hidden | `GET /health` → 200; tray process still alive |
+| `carte tray status` while hidden | `Cartethyia tray is running (PID 44848); icon hidden.` |
+| `Show icon` from the browser | 200 in 1.02 s; new helper in 1.07 s; toast "Icon shown"; state visible |
+| `carte tray status` while visible | `...; icon visible.` |
+| Repeat `show` (idempotent) | 200 from the record, no `tray-request.json` written |
+
+Not covered: clicking the tray menu itself, and `Exit` from the tray menu leaving no state files
+(criteria 5d and 7) — both need a real menu bar interaction.
+
+**Incidental findings (reported, not fixed — outside this change):**
+- `carte --tray` fails from a source checkout with `Unknown command: --tray`; the working form is
+  `carte tray`. The shim forwards argv verbatim and `main.ts` only accepts `tray`.
+- A tray from an earlier session was still running (PID 79551, icon hidden) with its gateway on port
+  12800. Left untouched.
 
 **Dependencies:** Tasks 7, 8
 
@@ -349,5 +374,7 @@ stopping the tray and gateway currently running on this machine.
 - [x] Every acceptance criterion met, or explicitly reported as unverified
 - [x] `bun run typecheck`, `bun run dashboard:typecheck`, and all three scopes green
 - [x] Windows/Linux tray behavior stated as implemented and unit-tested only
-- [ ] Manual macOS criteria demonstrated or reported as unverified
-- [x] Nothing committed, pushed, or deployed
+- [x] Manual macOS criteria demonstrated or reported as unverified — 5a–5c demonstrated in a real
+      browser against a real tray; 5d (menu click) and criterion 7 (Exit cleanup) reported as not
+      clicked
+- [x] Nothing pushed or deployed; the seven slices are local commits on `feat/tray-hide-icon`

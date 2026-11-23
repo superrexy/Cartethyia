@@ -112,14 +112,15 @@ Dependencies point one way, with no cycles. Build order is the graph bottom-up.
 ### Phase 6: Close-out
 
 - [x] Task 9a: Documentation folded in (`SPEC.md`, `SPEC-console-tray-control.md`, `README.md`)
-- [ ] Task 9b: Manual macOS end-to-end pass — **blocked on operator consent** to restart the local
-      tray/gateway
+- [x] Task 9b: Manual macOS end-to-end pass — 5a–5c demonstrated against a real tray in a real
+      browser; 5d and Exit cleanup reported as not clicked (need a menu bar interaction)
+- [x] Task 9c: Commit the work as per-task slices
 
 ### Checkpoint F: Complete
 - [x] Both typechecks and all three test scopes green
 - [x] Windows/Linux tray paths stated as implemented-but-unverified
-- [ ] Manual macOS criteria 5a–5d demonstrated or reported as unverified
-- [x] Nothing committed, pushed, or deployed
+- [x] Manual macOS criteria 5a–5d demonstrated or reported as unverified
+- [x] Nothing pushed or deployed; the slices are local commits on `feat/tray-hide-icon`
 
 ## Verification results
 
@@ -133,6 +134,7 @@ Dependencies point one way, with no cycles. Build order is the graph bottom-up.
 | `test/console/tray-routes.test.ts` | 15 pass |
 | `dashboard/test/features/tray-panel.test.tsx` | 6 pass |
 | Real gateway probe (isolated Lite instance) | 401 unauth vs 404 unknown path; admin 200; hide/show confirmed; dead pid → 409 `tray_not_running` with cleanup |
+| Manual macOS, real tray + real browser (Lightpanda) | Hide → icon gone in 0.99 s, `/health` 200; Show → icon back in 1.07 s; menu click not exercised |
 
 ## Risks and Mitigations
 
