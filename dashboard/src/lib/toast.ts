@@ -1,5 +1,15 @@
 import type { ReactNode } from "react";
 import { toast as sonnerToast, type ExternalToast } from "sonner";
+import { copyToClipboard } from "../hooks/clipboard";
+
+/** Reports the outcome of a toast's Copy action, which works on insecure origins too. */
+function copyToastText(text: string): void {
+  void copyToClipboard(text).then((ok) =>
+    ok
+      ? sonnerToast.success("Toast content copied", { duration: 2_000 })
+      : sonnerToast.error("Copy failed", { duration: 2_000 }),
+  );
+}
 
 /** Builds a "Copy" action that puts the toast's title + description on the clipboard. */
 function withCopyAction(title: string, description?: string | null): ExternalToast {
@@ -8,16 +18,7 @@ function withCopyAction(title: string, description?: string | null): ExternalToa
     ...(description ? { description } : {}),
     action: {
       label: "Copy",
-      onClick: () => {
-        if (!navigator.clipboard) {
-          sonnerToast.error("Clipboard unavailable");
-          return;
-        }
-        void navigator.clipboard.writeText(text).then(
-          () => sonnerToast.success("Toast content copied", { duration: 2_000 }),
-          () => sonnerToast.error("Copy failed", { duration: 2_000 }),
-        );
-      },
+      onClick: () => copyToastText(text),
     },
   };
 }
@@ -38,16 +39,7 @@ export const toast = {
       description: body,
       action: {
         label: "Copy",
-        onClick: () => {
-          if (!navigator.clipboard) {
-            sonnerToast.error("Clipboard unavailable");
-            return;
-          }
-          void navigator.clipboard.writeText(`${title}\n${copyText}`).then(
-            () => sonnerToast.success("Toast content copied", { duration: 2_000 }),
-            () => sonnerToast.error("Copy failed", { duration: 2_000 }),
-          );
-        },
+        onClick: () => copyToastText(`${title}\n${copyText}`),
       },
     }),
   error: (title: string, description?: string | null) =>

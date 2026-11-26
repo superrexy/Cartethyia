@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Check, Copy, ExternalLink, Loader2, Package, TriangleAlert } from "lucide-react";
+import { copyToClipboard } from "../hooks/clipboard";
 import { Button } from "./ui/button";
 import { CodeChip } from "./ui/code-chip";
 import { Dialog } from "./ui/dialog";
@@ -72,9 +73,11 @@ export interface UpdateDialogProps {
 function useCopy(): { copied: boolean; copy: (text: string) => void } {
   const [copied, setCopied] = useState(false);
   const copy = (text: string): void => {
-    void navigator.clipboard?.writeText(text);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1_500);
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_500);
+    });
   };
   return { copied, copy };
 }

@@ -13,6 +13,7 @@ import {
 } from "../../../hooks/providers";
 import { queryKeys } from "../../../data/query-keys";
 import { toast } from "../../../lib/toast";
+import { copyToClipboard } from "../../../hooks/clipboard";
 import { useTrackedTimeout } from "../../../hooks/use-timeout";
 
 /**
@@ -304,9 +305,14 @@ export function OAuthBrowserDialog({
               size="sm"
               icon={copied ? <Check size={12} /> : <Copy size={12} />}
               onClick={() => {
-                void navigator.clipboard?.writeText(authorizeUrl);
-                setCopied(true);
-                scheduleCopyReset(() => setCopied(false), 1500);
+                void copyToClipboard(authorizeUrl).then((ok) => {
+                  if (!ok) {
+                    toast.error("Clipboard unavailable on this origin");
+                    return;
+                  }
+                  setCopied(true);
+                  scheduleCopyReset(() => setCopied(false), 1500);
+                });
               }}
               className="shrink-0"
             >
@@ -616,9 +622,14 @@ export function DeviceCodeDialog({
                     size="sm"
                     icon={copiedCode ? <Check size={12} /> : <Copy size={12} />}
                     onClick={() => {
-                      void navigator.clipboard?.writeText(session.userCode);
-                      setCopiedCode(true);
-                      scheduleCopyReset(() => setCopiedCode(false), 1500);
+                      void copyToClipboard(session.userCode).then((ok) => {
+                        if (!ok) {
+                          toast.error("Clipboard unavailable on this origin");
+                          return;
+                        }
+                        setCopiedCode(true);
+                        scheduleCopyReset(() => setCopiedCode(false), 1500);
+                      });
                     }}
                   >
                     {copiedCode ? "Copied" : "Copy code"}
@@ -657,9 +668,14 @@ export function DeviceCodeDialog({
                   size="sm"
                   icon={copied ? <Check size={12} /> : <Copy size={12} />}
                   onClick={() => {
-                    void navigator.clipboard?.writeText(session.verificationUri);
-                    setCopied(true);
-                    scheduleCopyReset(() => setCopied(false), 1500);
+                    void copyToClipboard(session.verificationUri).then((ok) => {
+                      if (!ok) {
+                        toast.error("Clipboard unavailable on this origin");
+                        return;
+                      }
+                      setCopied(true);
+                      scheduleCopyReset(() => setCopied(false), 1500);
+                    });
                   }}
                   className="shrink-0"
                 >

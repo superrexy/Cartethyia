@@ -25,6 +25,7 @@ import { Banner } from "../../../components/patterns/banner";
 import { ErrorState } from "../../../components/ui/state";
 import { useProviderAccounts } from "../../../hooks/providers";
 import { useUsageRequestDetail } from "../../../hooks/system";
+import { copyToClipboard } from "../../../hooks/clipboard";
 import { useTrackedTimeout } from "../../../hooks/use-timeout";
 import { useBanApiKey } from "../../../hooks/api-keys";
 import { API_KEY_BAN_REASONS } from "../../../data/contracts";
@@ -204,15 +205,25 @@ export function RequestDetailDrawer({
   const [downloading, setDownloading] = useState(false);
   const scheduleReset = useTrackedTimeout();
   const copyRequestId = () => {
-    void navigator.clipboard?.writeText(detail?.requestId ?? "");
-    setCopiedRequestId(true);
-    scheduleReset(() => setCopiedRequestId(false), 1500);
+    void copyToClipboard(detail?.requestId ?? "").then((ok) => {
+      if (!ok) {
+        toast.error("Clipboard unavailable on this origin");
+        return;
+      }
+      setCopiedRequestId(true);
+      scheduleReset(() => setCopiedRequestId(false), 1500);
+    });
   };
   const copyPayload = (kind: PayloadKind, payload: unknown) => {
     const text = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
-    void navigator.clipboard?.writeText(text);
-    setCopiedPayload(kind);
-    scheduleReset(() => setCopiedPayload(null), 1500);
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) {
+        toast.error("Clipboard unavailable on this origin");
+        return;
+      }
+      setCopiedPayload(kind);
+      scheduleReset(() => setCopiedPayload(null), 1500);
+    });
   };
   const downloadTelemetry = async () => {
     if (!detail) return;
